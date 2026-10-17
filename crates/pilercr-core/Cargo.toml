@@ -1,0 +1,13 @@
+[package]
+name = "pilercr-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "pilercr_rs"
+
+[dev-dependencies]
+pilercr-parser = "1.1.0"
+serde_json = "1"

@@ -1,0 +1,178 @@
+Help on reading this report
+===========================
+
+This report has three sections: Detailed, Summary by Similarity
+and Summary by Position.
+
+The detailed section shows each repeat in each putative
+CRISPR array.
+
+The summary sections give one line for each array.
+
+An 'array' is a contiguous sequence of CRISPR repeats
+looking like this:
+
+    REPEAT Spacer REPEAT Spacer REPEAT ... Spacer REPEAT
+
+Within one array, repeats have high similarity and spacers
+are, roughly speaking, unique within a window around the array.
+In a given array, each repeat has a similar length, and each
+spacer has a similar length. With default parameters, the
+algorithm allows a fair amount of variability in order to
+maximize sensitivity. This may allow identification of
+inactive ("fossil") arrays, and may in rare cases also
+induce false positives due to other classes of repeats
+such as microsatellites, LTRs and arrays of RNA genes.
+
+
+Columns in the detailed section are:
+
+  Pos               Sequence position, starting at 1 for the first base.
+  Repeat            Length of the repeat.
+  %id               Identity with the consensus sequence.
+  Spacer            Length of spacer to the right of this repeat.
+  Left flank        10 bases to the left of this repeat.
+  Repeat            Sequence of this repeat.
+                      Dots indicate positions where this repeat
+                      agrees with the consensus sequence below.
+  Spacer            Sequence of spacer to the right of this repeat,
+                      or 10 bases if this is the last repeat.
+
+The left flank sequence duplicates the end of the spacer for the preceding
+repeat; it is provided to facilitate visual identification of cases
+where the algorithm does not correctly identify repeat endpoints.
+
+At the end of each array there is a sub-heading that gives the average
+repeat length, average spacer length and consensus sequence.
+
+Columns in the summary sections are:
+
+  Array             Number 1, 2 ... referring back to the detailed report.
+  Sequence          FASTA label of the sequence. May be truncated.
+  From              Start position of array.
+  To                End position of array.
+  # copies          Number of repeats in the array.
+  Repeat            Average repeat length.
+  Spacer            Average spacer length.
+  +                 +/-, indicating orientation relative to first array in group.
+  Distance          Distance from previous array.
+  Consensus         Consensus sequence.
+
+In the Summary by Similarity section, arrays are grouped by similarity of their
+consensus sequences. If consensus sequences are sufficiently similar, they are
+aligned to each other to indicate probable relationships between arrays.
+
+In the Summary by Position section, arrays are sorted by position within the
+input sequence file.
+
+The Distance column facilitates identification of cases where a single
+array has been reported as two adjacent arrays. In such a case, (a) the
+consensus sequences will be similar or identical, and (b) the distance
+will be approximately a small multiple of the repeat length + spacer length.
+
+Use the -noinfo option to turn off this help.
+Use the -help option to get a list of command line options.
+
+pilercr v1.06
+By Robert C. Edgar
+
+excerpt_10.fa: 2 putative CRISPR arrays found.
+
+
+
+DETAIL REPORT
+
+
+
+Array 1
+>excerpt_10
+
+       Pos  Repeat     %id  Spacer  Left flank    Repeat                                  Spacer
+==========  ======  ======  ======  ==========    ====================================    ======
+       201      36   100.0      30  CCCCTACGAG    ....................................    TGAATTAGTAACAGATTAATAAGTGGTCAA
+       267      36   100.0      30  AAGTGGTCAA    ....................................    TAATTTTACCGTATGTTATTTTGGTTGTCT
+       333      36   100.0      30  TTGGTTGTCT    ....................................    ACGGTATGTGTACCAGTGACCCATGTTGTA
+       399      36   100.0      30  CCATGTTGTA    ....................................    GTTTTTGAAAAGTTTTTATCCGTTGCACTC
+       465      36   100.0      30  CGTTGCACTC    ....................................    TCTCGAAAGAGAGTACGATGTCTATTGATA
+       531      36   100.0      30  TCTATTGATA    ....................................    TCTAAAAGCGAATCTCAAACAACAACTTGC
+       597      36   100.0      30  AACAACTTGC    ....................................    CAACAGCAGATTTAATCGTCCCAGAAGTTA
+       663      36   100.0      30  CCAGAAGTTA    ....................................    TGCAGCCTGTAAACCGTATTGAGCAACAGT
+       729      36   100.0      30  GAGCAACAGT    ....................................    GCGTTGCTAAAATGGGGAACACTGGTGCAA
+       795      36   100.0      30  ACTGGTGCAA    ....................................    TTCGTCAAACGTTCCATAAAGTGTAAGTGT
+       861      36   100.0      30  GTGTAAGTGT    ....................................    TGCATTTGATTTCATCATGACTTACAACTC
+       927      36   100.0      30  CTTACAACTC    ....................................    GTAGCTTAATAATAAGAGTATTGTTGTGGT
+       993      36   100.0          TTGTTGTGGT    ....................................    ATTTTTGTATGGCAGTATTACCGAGGTTGTGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTTATTTTCTATAATTTCAACGCTGAACGCGGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTCACTTACGCTAGTCATACCAATGGTACTAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACGTTATCAATTATTGATGAACAATATCCCGAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACCGTTAACACTTGCGCTGTAGTCGCATAACTGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTTTTATATTGATTGCCTGTACCGCCAAAGTGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACAAGGCCCGTGGACTGTTAAGCTAGAGGTTCGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTACTAGTGAGGCTACCTATTCTGTCAATAAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACCTCTAGGTTAAGCCACAACGCTTTATCACGGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACACCTTGTTAAAAATAAACGACATTTCATCTGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACATACAAGCCAAATTCTGATACAGAAGGGGAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTAGCGCTCTTAATTTCAAGCCATCAAATACGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACATAGACACATTATGGTTAGGGCTTCTGATGGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACGGAATGGCATTGAAAGCATTGCAAGTGCTGGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACATCCAGCGAAAAAGAGACTTTGAAACTAGTGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTAATACAGTATGGGTTAAATCGAATATTGGGTTTTTGAGCTGTGTTGAATTGAATGCCTCCAAAACTTGCACCGCCACCAGAGACAGCGCCAGTAAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTTGTTAGACCGTTTCGTTCCCACTTTTTAAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTGGTATTAATCGTAAAGTTGCTCAGCTTGAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACATGCCACAAGGGGCTTTGAACAACCTTACAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTGTCTGTTGCATGTCCAGTGCGCCAGTTGTGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACAATTAGAAGTATCATATCATCAGCAAGCTCGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACCTTTATCAACGTTTCAAGCAAGACTAAACCGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACATCAGCACCGGTCATCTTCACTGTTGTGCCGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTAGCGCAATTCATGCAGTACAAGACGAGCTGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACCATAACGCCTAAATTCATAGAACGTTGCGTGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACAGTGTCGCTCTTGCTTTCGTCTTCAAGATAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTCCAAAATTTATCTTTAATCAAACAAAATCGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACGCCGTTTCCGCCAGAAATTGGGCTTAACTCGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTATGGTATTTCAACTGAGATTATTGAAATAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTTATGGATTCTCAGATATGACAACAGCTATGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTTGTGATGGATCTGGAATACTGTCCTCTTCGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTATGTATATGTCTGATTCTATCGACGAAGCGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTGATTCCTTACGCATGGAAGCGCACAAGGTGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTGGCACTTTTCGCGAAATTGAAGAATGCTAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTTCGCAAGTATTGACGACTTAACATCACTAGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACACTTGTCAGCAACGTCAGCGTTCCAGTTACGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACCAATAATCATGATGAACGGGTACACAACGTGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTAATAATGCTGATAATATTTTACATGCAGTGTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAACTTTCAAGCGATTTTATGAAGGTACTTGTAG
+==========  ======  ======  ======  ==========    ====================================
+        13      36              30                GTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAAC
+
+
+Array 2
+>excerpt_10
+
+       Pos  Repeat     %id  Spacer  Left flank    Repeat                                  Spacer
+==========  ======  ======  ======  ==========    ====================================    ======
+      1059      36   100.0      30  CCGAGGTTGT    ....................................    TTATTTTCTATAATTTCAACGCTGAACGCG
+      1125      36   100.0      30  GCTGAACGCG    ....................................    TCACTTACGCTAGTCATACCAATGGTACTA
+      1191      36   100.0      30  AATGGTACTA    ....................................    GTTATCAATTATTGATGAACAATATCCCGA
+      1257      36   100.0      30  AATATCCCGA    ....................................    CGTTAACACTTGCGCTGTAGTCGCATAACT
+      1323      36   100.0      30  TCGCATAACT    ....................................    TTTTATATTGATTGCCTGTACCGCCAAAGT
+      1389      36   100.0      30  CCGCCAAAGT    ....................................    AAGGCCCGTGGACTGTTAAGCTAGAGGTTC
+      1455      36   100.0      30  CTAGAGGTTC    ....................................    TACTAGTGAGGCTACCTATTCTGTCAATAA
+      1521      36   100.0      30  CTGTCAATAA    ....................................    CTCTAGGTTAAGCCACAACGCTTTATCACG
+      1587      36   100.0      30  CTTTATCACG    ....................................    ACCTTGTTAAAAATAAACGACATTTCATCT
+      1653      36   100.0      30  CATTTCATCT    ....................................    ATACAAGCCAAATTCTGATACAGAAGGGGA
+      1719      36   100.0      30  CAGAAGGGGA    ....................................    TAGCGCTCTTAATTTCAAGCCATCAAATAC
+      1785      36   100.0      30  CATCAAATAC    ....................................    ATAGACACATTATGGTTAGGGCTTCTGATG
+      1851      36   100.0      30  GCTTCTGATG    ....................................    GGAATGGCATTGAAAGCATTGCAAGTGCTG
+      1917      36   100.0      30  GCAAGTGCTG    ....................................    ATCCAGCGAAAAAGAGACTTTGAAACTAGT
+      1983      36   100.0      30  TGAAACTAGT    ....................................    TAATACAGTATGGGTTAAATCGAATATTGG
+      2049      36    97.2      30  CGAATATTGG    .....T..............................    TTGCACCGCCACCAGAGACAGCGCCAGTAA
+      2115      36   100.0      30  GCGCCAGTAA    ....................................    TTGTTAGACCGTTTCGTTCCCACTTTTTAA
+      2181      36   100.0      30  CACTTTTTAA    ....................................    TGGTATTAATCGTAAAGTTGCTCAGCTTGA
+      2247      36   100.0      30  CTCAGCTTGA    ....................................    ATGCCACAAGGGGCTTTGAACAACCTTACA
+      2313      36   100.0      30  CAACCTTACA    ....................................    TGTCTGTTGCATGTCCAGTGCGCCAGTTGT
+      2379      36   100.0      30  CGCCAGTTGT    ....................................    AATTAGAAGTATCATATCATCAGCAAGCTC
+      2445      36   100.0      30  CAGCAAGCTC    ....................................    CTTTATCAACGTTTCAAGCAAGACTAAACC
+      2511      36   100.0      30  AGACTAAACC    ....................................    ATCAGCACCGGTCATCTTCACTGTTGTGCC
+      2577      36   100.0      30  CTGTTGTGCC    ....................................    TAGCGCAATTCATGCAGTACAAGACGAGCT
+      2643      36   100.0      30  AAGACGAGCT    ....................................    CATAACGCCTAAATTCATAGAACGTTGCGT
+      2709      36   100.0      30  AACGTTGCGT    ....................................    AGTGTCGCTCTTGCTTTCGTCTTCAAGATA
+      2775      36   100.0      30  CTTCAAGATA    ....................................    TCCAAAATTTATCTTTAATCAAACAAAATC
+      2841      36   100.0      30  AAACAAAATC    ....................................    GCCGTTTCCGCCAGAAATTGGGCTTAACTC
+      2907      36   100.0      30  GGCTTAACTC    ....................................    TATGGTATTTCAACTGAGATTATTGAAATA
+      2973      36   100.0      30  TATTGAAATA    ....................................    TTATGGATTCTCAGATATGACAACAGCTAT
+      3039      36   100.0      30  CAACAGCTAT    ....................................    TTGTGATGGATCTGGAATACTGTCCTCTTC
+      3105      36   100.0      30  TGTCCTCTTC    ....................................    TATGTATATGTCTGATTCTATCGACGAAGC
+      3171      36   100.0      30  TCGACGAAGC    ....................................    TGATTCCTTACGCATGGAAGCGCACAAGGT
+      3237      36   100.0      30  CGCACAAGGT    ....................................    TGGCACTTTTCGCGAAATTGAAGAATGCTA
+      3303      36   100.0      30  AAGAATGCTA    ....................................    TTCGCAAGTATTGACGACTTAACATCACTA
+      3369      36   100.0      30  AACATCACTA    ....................................    ACTTGTCAGCAACGTCAGCGTTCCAGTTAC
+      3435      36   100.0      30  TTCCAGTTAC    ....................................    CAATAATCATGATGAACGGGTACACAACGT
+      3501      36   100.0      30  TACACAACGT    ....................................    TAATAATGCTGATAATATTTTACATGCAGT
+      3567      36   100.0          TACATGCAGT    ....................................    TTTCAAGCGATTTTATGAAGGTACTTGTAG
+==========  ======  ======  ======  ==========    ====================================
+        39      36              30                GTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAAC
+
+
+SUMMARY BY SIMILARITY
+
+
+
+Array          Sequence    Position      Length  # Copies  Repeat  Spacer  +  Consensus
+=====  ================  ==========  ==========  ========  ======  ======  =  =========
+    1        excerpt_10         201         828        13      36      30  +  GTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAAC
+    2        excerpt_10        1059        2544        39      36      30  +  GTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAAC
+                                                                              ************************************
+
+
+
+SUMMARY BY POSITION
+
+
+
+>excerpt_10
+
+Array          Sequence    Position      Length  # Copies  Repeat  Spacer    Distance  Consensus
+=====  ================  ==========  ==========  ========  ======  ======  ==========  =========
+    1        excerpt_10         201         828        13      36      30              GTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAAC
+    2        excerpt_10        1059        2544        39      36      30           0  GTTTTAGAGCTGTGTTGAATTGAATGCCTCCAAAAC

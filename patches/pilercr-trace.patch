@@ -1,0 +1,417 @@
+diff -ruN a/alignarrays.cpp b/alignarrays.cpp
+--- a/alignarrays.cpp
++++ b/alignarrays.cpp
+@@ -18,7 +18,10 @@
+ 		ArrayAln &AA = *new ArrayAln;
+ 		AlignArray(AD, AA);
+ 
+-		if (AA.Repeats.size() > 0 && AcceptedAA(AA))
++		bool Accepted = AA.Repeats.size() > 0 && AcceptedAA(AA);
++		if (g_TraceEnabled)
++			TraceRow(15, "%d\t%s\tfinal-filters", AA.Id, Accepted ? "accept" : "reject");
++		if (Accepted)
+ 			AAVec.push_back(&AA);
+ 		}
+ 
+@@ -34,6 +37,9 @@
+ 		if (ArrayIndex + 1 >= ArrayCount)
+ 			break;
+ 		bool Merged = MergeAAs(*AAVec[ArrayIndex], *AAVec[ArrayIndex+1]);
++		if (g_TraceEnabled)
++			TraceRow(15, "%d\t%s\t%d", AAVec[ArrayIndex]->Id,
++			  Merged ? "merge" : "keep", AAVec[ArrayIndex+1]->Id);
+ 		if (Merged)
+ 			{
+ 		// Delete entry from array and continue.
+diff -ruN a/alnarray.cpp b/alnarray.cpp
+--- a/alnarray.cpp
++++ b/alnarray.cpp
+@@ -208,7 +208,9 @@
+ 		}
+ 
+ 	AA.Pos = Rows[0].RepeatLo;
++	TraceBounds(AA, "before");
+ 	FixBounds(AA);
++	TraceBounds(AA, "after");
+ 
+ 	GetConsSeqAA(AA, AA.AlignedConsSeq);
+ 	AA.ConsSeq.Copy(AA.AlignedConsSeq);
+diff -ruN a/multaln.cpp b/multaln.cpp
+--- a/multaln.cpp
++++ b/multaln.cpp
+@@ -12,6 +12,7 @@
+ 		Seq &s = Seqs.GetSeq(0);
+ 		s.SetId(0);
+ 		Aln.FromSeq(s);
++		TraceMSA(Aln);
+ 		return;
+ 		}
+ 
+@@ -26,4 +27,5 @@
+ 	Tree GuideTree;
+ 	GetGuideTree(Seqs, GuideTree);
+ 	ProgressiveAlign(Seqs, GuideTree, Aln);
++	TraceMSA(Aln);
+ 	}
+diff -ruN a/options.cpp b/options.cpp
+--- a/options.cpp
++++ b/options.cpp
+@@ -15,6 +15,7 @@
+ static VALUE_OPT ValueOpts[] =
+ 	{
+ 	"in",					0,
++	"trace-dir",			0,
+ 	"minhitlength",			0,
+ 	"minid",				0,
+ 	"maxmem",				0,
+diff -ruN a/pilercr.cpp b/pilercr.cpp
+--- a/pilercr.cpp
++++ b/pilercr.cpp
+@@ -57,6 +57,7 @@
+ 	{
+ 	const char *InFileName = RequiredValueOpt("in");
+ 	const char *OutFileName = RequiredValueOpt("out");
++	TraceOpen(ValueOpt("trace-dir"));
+ 
+ 	const char *HitsFileName = ValueOpt("hits");
+ 	const char *DiscardedHitsFileName = ValueOpt("discardedhits");
+@@ -115,6 +116,18 @@
+ 	GetParams(SeqLengthQ, g_Diameter, g_MinHitLength, g_MinId, &FP, &DP);
+ 
+ 	k = FP.WordSize;
++	if (g_TraceEnabled)
++		{
++		TraceRow(1, "%d\t%d\t%d\t%d\t%d\t%d\t%.17f\t%d",
++		  k, FP.SeedLength, FP.SeedDiffs, FP.TubeOffset, g_Diameter,
++		  DP.g_MinHitLength, DP.MinId, g_MaxDPHitLen);
++		for (int i = 0; i < ContigCountQ; ++i)
++			{
++			const ContigData &C = ContigsQ[i];
++			TraceRow(2, "%d\t%d\t%d\t%s", i, C.From, C.Length,
++			  TraceEscape(C.Label).c_str());
++			}
++		}
+ 
+ 	const double SeedPctId = (1.0 - (double) FP.SeedDiffs / (double) FP.SeedLength)*100.0;
+ 	const double MemRequired = TotalMemRequired(SeqLengthQ, FP);
+@@ -154,6 +167,10 @@
+ 
+ 	Progress("Read filter hits");
+ 	FilterHit *FilterHits = ReadFilterHits(fFilterOut, FilterHitCount);
++	if (g_TraceEnabled)
++		for (int i = 0; i < FilterHitCount; ++i)
++			TraceRow(3, "%d\t%d\t%d\t%d", i, FilterHits[i].QFrom,
++			  FilterHits[i].QTo, FilterHits[i].DiagIndex);
+ 	CloseFilterOutFile();
+ 	if (0 == FilterOutPrefix)
+ 		remove(strFilterOutFileName);
+@@ -164,6 +181,17 @@
+ 	int TrapCount;
+ 	Trapezoid *Traps = MergeFilterHits(g_SeqQ, SeqLengthQ, g_SeqQ, SeqLengthQ,
+ 	  true, FilterHits, FilterHitCount, FP, &TrapCount);
++	if (g_TraceEnabled)
++		{
++		// The linked list continues into recycled storage beyond TrapCount.
++		const Trapezoid *T = Traps;
++		for (int i = 0; i < TrapCount; ++i, T = T->next)
++			{
++			if (T == 0)
++				Quit("Trace: trapezoid list shorter than TrapCount");
++			TraceRow(4, "%d\t%d\t%d\t%d\t%d", i, T->bot, T->top, T->lft, T->rgt);
++			}
++		}
+ 	LogTraps(Traps);
+ 	SaveTraps(Traps);
+ 
+@@ -188,6 +216,13 @@
+ 
+ 	Progress("Sorting hits");
+ 	std::sort(g_Hits.begin(), g_Hits.end(), Cmp_Lo);
++	if (g_TraceEnabled)
++		for (size_t i = 0; i < g_Hits.size(); ++i)
++			{
++			const DPHit &H = g_Hits[i];
++			TraceRow(5, "%zu\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.9f",
++			  i, H.aLo, H.aHi, H.bLo, H.bHi, H.ldiag, H.hdiag, H.score, H.error);
++			}
+ 
+ 	if (g_LogHits)
+ 		LogHits();
+@@ -202,20 +237,49 @@
+ 	  g_NotAcceptedHitCount + g_AcceptedHitCount, g_AcceptedHitCount);
+ 	Progress("%u discarded hits", g_DiscardedHitCount);
+ 	HitsToImages();
++	if (g_TraceEnabled)
++		for (size_t i = 0; i < g_Images.size(); ++i)
++			{
++			const ImageData &Image = g_Images[i];
++			TraceRow(6, "%zu\t%d\t%d\t%d\t%d", i, Image.Lo, Image.Hi,
++			  Image.HitIndex, Image.IsA ? 1 : 0);
++			}
+ 
+ 	Progress("Finding piles");
+ 	FindPiles();
++	TracePiles(7);
+ 	ExpandPiles();
++	TracePiles(8);
++	if (g_TraceEnabled)
++		for (size_t i = 0; i < g_HitIndexToPileIndexA.size(); ++i)
++			TraceRow(9, "%zu\t%d\t%d", i, g_HitIndexToPileIndexA[i],
++			  g_HitIndexToPileIndexB[i]);
+ 	WritePiles();
+ 	Progress("%d piles found", (int) g_Piles.size());
+ 
+ 	Progress("Building graph");
+ 	EdgeList Edges;
+ 	MakeGraph(Edges);
++	if (g_TraceEnabled)
++		{
++		size_t i = 0;
++		for (EdgeList::const_iterator E = Edges.begin(); E != Edges.end(); ++E, ++i)
++			TraceRow(10, "%zu\t%d\t%d\t%d", i, E->Node1, E->Node2, E->Rev ? 1 : 0);
++		}
+ 
+ 	Progress("Find connected components");
+ 	CompList Comps;
+ 	GetConnComps(Edges, Comps, g_DraftMinArraySize);
++	if (g_TraceEnabled)
++		{
++		size_t i = 0;
++		for (CompList::const_iterator C = Comps.begin(); C != Comps.end(); ++C, ++i)
++			{
++			size_t j = 0;
++			for (CompData::const_iterator M = (*C)->begin(); M != (*C)->end(); ++M, ++j)
++				TraceRow(11, "%zu\t%zu\t%d\t%d", i, j, M->PileIndex, M->Rev ? 1 : 0);
++			}
++		}
+ 	Progress("%d connected components", (int) Comps.size());
+ 
+ 	Progress("Find arrays");
+@@ -226,6 +290,7 @@
+ 		FindArrays(*Comp, ADVec);
+ 		}
+ 
++	TraceDrafts(ADVec);
+ 	g_fOut = CreateStdioFile(OutFileName);
+ 
+ 	if (!g_NoInfo)
+@@ -233,6 +298,7 @@
+ 
+ 	std::vector<ArrayAln *> AAVec;
+ 	AlignArrays(ADVec, AAVec);
++	TraceFinal(AAVec);
+ 
+ 	const int ArrayCount = (int) AAVec.size();
+ 	Progress("%d arrays found", (int) AAVec.size());
+@@ -242,9 +308,13 @@
+ 	Out("%s: %d putative CRISPR arrays found.\n\n", InFileName, ArrayCount);
+ 
+ 	if (ArrayCount == 0)
++		{
++		TraceClose();
+ 		return;
++		}
+ 
+ 	OutArrays(AAVec);
++	TraceClose();
+ 	fclose(g_fOut);
+ 	g_fOut = 0;
+ 
+diff -ruN a/pilercr.h b/pilercr.h
+--- a/pilercr.h
++++ b/pilercr.h
+@@ -285,3 +285,17 @@
+ double GetFractId(const Seq &A, const Seq &B, unsigned StartA,
+   unsigned StartB, std::string &Path);
+ void Options();
++
++// Optional observational TSV tracing; no algorithm containers are reordered.
++extern bool g_TraceEnabled;
++void TraceOpen(const char *Dir);
++void TraceClose();
++void TraceRow(int Stage, const char *Format, ...);
++std::string TraceEscape(const std::string &s);
++std::string TraceSeq(const Seq &s);
++std::string TraceIndexes(const IntVec &Indexes);
++void TracePiles(int Stage);
++void TraceMSA(const MSA &Aln);
++void TraceBounds(const ArrayAln &AA, const char *When);
++void TraceDrafts(const std::vector<ArrayData *> &ADVec);
++void TraceFinal(const std::vector<ArrayAln *> &AAVec);
+diff -ruN a/trace.cpp b/trace.cpp
+--- a/trace.cpp
++++ b/trace.cpp
+@@ -0,0 +1,173 @@
++#include <filesystem>
++#include "pilercr.h"
++
++bool g_TraceEnabled = false;
++static FILE *TraceFiles[16] = {0};
++static unsigned MSACallIndex = 0;
++static const char *TraceStages[] =
++	{
++	"01-parameters", "02-contigs", "03-filter-hits", "04-trapezoids",
++	"05-dp-hits", "06-images", "07-piles", "08-expanded-piles",
++	"09-hit-piles", "10-edges", "11-components", "12-draft-arrays",
++	"13-msa", "14-bounds", "15-decisions", "16-final-arrays"
++	};
++
++static void TraceError(const char *Action, const char *Path)
++	{
++	fprintf(stderr, "Trace error: %s: %s\n", Action, Path);
++	exit(EXIT_FAILURE);
++	}
++
++void TraceOpen(const char *Dir)
++	{
++	if (Dir == 0)
++		return;
++	std::error_code Error;
++	const std::filesystem::path Path(Dir);
++	bool Exists = std::filesystem::exists(Path, Error);
++	if (Error)
++		TraceError("cannot inspect directory", Dir);
++	if (Exists)
++		{
++		bool Empty = std::filesystem::is_empty(Path, Error);
++		if (Error || !std::filesystem::is_directory(Path, Error) || Error || !Empty)
++			TraceError("expected an empty directory", Dir);
++		}
++	else if (!std::filesystem::create_directories(Path, Error) || Error)
++		TraceError("cannot create directory", Dir);
++
++	for (int i = 0; i < 16; ++i)
++		{
++		std::string Name = (Path / (std::string(TraceStages[i]) + ".tsv")).string();
++		TraceFiles[i] = fopen(Name.c_str(), "wbx");
++		if (TraceFiles[i] == 0)
++			TraceError("cannot create file", Name.c_str());
++		if (fprintf(TraceFiles[i], "# pilercr-trace-v1\t%s\tzero-based;native-endpoints\n",
++		  TraceStages[i]) < 0 || fflush(TraceFiles[i]) != 0)
++			TraceError("cannot write header", Name.c_str());
++		}
++	g_TraceEnabled = true;
++	MSACallIndex = 0;
++	}
++
++void TraceRow(int Stage, const char *Format, ...)
++	{
++	if (!g_TraceEnabled)
++		return;
++	FILE *f = TraceFiles[Stage - 1];
++	va_list Args;
++	va_start(Args, Format);
++	int Result = vfprintf(f, Format, Args);
++	va_end(Args);
++	if (Result < 0 || fputc('\n', f) == EOF)
++		TraceError("cannot write stage", TraceStages[Stage - 1]);
++	}
++
++void TraceClose()
++	{
++	if (!g_TraceEnabled)
++		return;
++	for (int i = 0; i < 16; ++i)
++		{
++		if (fclose(TraceFiles[i]) != 0)
++			TraceError("cannot close stage", TraceStages[i]);
++		TraceFiles[i] = 0;
++		}
++	g_TraceEnabled = false;
++	}
++
++std::string TraceEscape(const std::string &s)
++	{
++	std::string Result;
++	for (size_t i = 0; i < s.size(); ++i)
++		switch (s[i])
++			{
++			case '\\': Result += "\\\\"; break;
++			case '\t': Result += "\\t"; break;
++			case '\r': Result += "\\r"; break;
++			case '\n': Result += "\\n"; break;
++			default: Result += s[i];
++			}
++	return Result;
++	}
++
++std::string TraceSeq(const Seq &s)
++	{
++	return TraceEscape(std::string(s.begin(), s.end()));
++	}
++
++std::string TraceIndexes(const IntVec &Indexes)
++	{
++	std::string Result;
++	for (size_t i = 0; i < Indexes.size(); ++i)
++		{
++		if (i != 0)
++			Result += ',';
++		Result += std::to_string(Indexes[i]);
++		}
++	return Result;
++	}
++
++void TracePiles(int Stage)
++	{
++	if (!g_TraceEnabled)
++		return;
++	for (size_t i = 0; i < g_Piles.size(); ++i)
++		{
++		const PileData &P = g_Piles[i];
++		TraceRow(Stage, "%zu\t%d\t%d\t%d\t%s", i, P.Lo, P.Hi,
++		  P.Deleted ? 1 : 0, TraceIndexes(P.HitIndexes).c_str());
++		}
++	}
++
++void TraceMSA(const MSA &Aln)
++	{
++	if (!g_TraceEnabled)
++		return;
++	const unsigned Call = MSACallIndex++;
++	// IDs are assigned from the input order by MultipleAlign. Do not sort Aln.
++	for (unsigned i = 0; i < Aln.GetSeqCount(); ++i)
++		{
++		// FromSeq does not necessarily allocate an ID map for a singleton.
++		unsigned Row = Aln.GetSeqCount() == 1 ? 0 : Aln.GetSeqIndex(i);
++		std::string Bytes;
++		for (unsigned Col = 0; Col < Aln.GetColCount(); ++Col)
++			Bytes += Aln.GetChar(Row, Col);
++		TraceRow(13, "%u\t%u\t%s", Call, i, TraceEscape(Bytes).c_str());
++		}
++	}
++
++void TraceBounds(const ArrayAln &AA, const char *When)
++	{
++	if (!g_TraceEnabled)
++		return;
++	for (size_t i = 0; i < AA.Repeats.size(); ++i)
++		TraceRow(14, "%d\t%s\t%d\t%zu\t%s\t%s\t%s", AA.Id, When, AA.Pos, i,
++		  TraceEscape(AA.LeftFlanks[i]).c_str(), TraceEscape(AA.Repeats[i]).c_str(),
++		  TraceEscape(AA.Spacers[i]).c_str());
++	}
++
++void TraceDrafts(const std::vector<ArrayData *> &ADVec)
++	{
++	if (!g_TraceEnabled)
++		return;
++	for (size_t i = 0; i < ADVec.size(); ++i)
++		{
++		const ArrayData &AD = *ADVec[i];
++		TraceRow(12, "%d\t%s\t%s", AD.Id, TraceIndexes(AD.PileIndexes).c_str(),
++		  TraceSeq(AD.ConsSeq).c_str());
++		}
++	}
++
++void TraceFinal(const std::vector<ArrayAln *> &AAVec)
++	{
++	if (!g_TraceEnabled)
++		return;
++	for (size_t i = 0; i < AAVec.size(); ++i)
++		{
++		const ArrayAln &AA = *AAVec[i];
++		TraceRow(16, "%d\t%d\t%s\t%s\t%zu", AA.Id, AA.Pos,
++		  TraceSeq(AA.ConsSeq).c_str(), TraceSeq(AA.AlignedConsSeq).c_str(),
++		  AA.Repeats.size());
++		}
++	}

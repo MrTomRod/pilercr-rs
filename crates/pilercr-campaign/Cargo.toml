@@ -1,0 +1,13 @@
+[package]
+name = "pilercr-campaign"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json = "1"
+
+[[bin]]
+name = "pilercr-campaign"
+path = "src/main.rs"
