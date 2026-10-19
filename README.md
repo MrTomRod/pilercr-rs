@@ -11,9 +11,15 @@ identification of CRISPR repeats*, BMC Bioinformatics 8:18.
 ## Status
 
 - The detection pipeline is complete and runs single-threaded.
-- Text reports and consensus FASTA are byte-identical to the modern local
-  C++ rebuild of PILER-CR v1.06 on all 52 assemblies in the verification
-  set (see [Verification](#verification)).
+- By default, text reports and consensus FASTA are byte-identical to the
+  modern local C++ rebuild of PILER-CR v1.06 on all 52 assemblies in the
+  verification set (see [Verification](#verification)).
+- `--legacy` (library: `Config::sort_mode = SortMode::Legacy`) switches the
+  two tie-sensitive sorts to the reverse-engineered GCC 4.4.3 `std::sort`
+  order used by the shipped 2011 executable. This is opt-in and does not
+  change the default. It is not universal parity: this implementation
+  reproduces 51 of the 52 locally available 2011 text reports byte-for-byte;
+  assembly 20 still differs (see [Known differences](#known-differences-from-the-reference)).
 - JSON, GFF3 and TSV exports are implemented. They use corrected
   coordinates.
 - Parallelism and performance tuning are not done.
@@ -103,7 +109,8 @@ Options (abridged; run `pilercr-rs --help` for the full list):
 | `-seq PATH` | Consensus FASTA. |
 | `-trimseqs` | Trim similar consensus sequences (requires `-seq`). |
 | `--json`, `--gff`, `--tsv PATH` | Structured output with corrected coordinates. |
-| `--legacy-coords` | Reproduce the reference's gap-shifted coordinates in the text report. |
+| `--legacy` | Use the GCC 4.4.3 `std::sort` tie order of the shipped 2011 executable for hit and image sorting. Opt-in; the default remains the modern sort. |
+| `--legacy-coords` | Reproduce the reference's gap-shifted coordinates in the text report. Independent of `--legacy`. |
 | `--trace-dir DIR` | Write checkpoint TSVs for debugging, into a new or empty directory. |
 | `-quiet`, `-noinfo` | Suppress progress messages or the explanatory text. |
 | `-minrepeat`, `-maxrepeat`, `-minspacer`, `-maxspacer`, `-minarray` | Repeat, spacer and array size limits (defaults 16, 64, 8, 64, 3). |
@@ -125,8 +132,9 @@ used in the test suite to check that the two agree.
 
 - By default, text and structured outputs use **corrected** coordinates,
   which count only real bases.
-- `--legacy-coords` reproduces the reference's text output exactly. Use it
-  only when you need to match old reports.
+- `--legacy-coords` reproduces the reference's gap-shifted text
+  coordinates. It is separate from `--legacy`, which changes detection
+  tie-breaking, not coordinate formatting.
 
 ## Library usage
 
@@ -152,7 +160,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 `detect` returns structured `Array` values. Rendering is separate, so you can
-produce any output format from the same results.
+produce any output format from the same results. `Config::sort_mode` selects
+`SortMode::Modern` (the default) or `SortMode::Legacy`, the opt-in GCC 4.4.3
+sort order used by the CLI's `--legacy` flag.
 
 ## Verification
 
@@ -169,6 +179,16 @@ author's published reports.
   order depends on the compiler and standard library. The acceptance target is
   the modern rebuild of the pristine source, which matches the local oracle on
   all 52 assemblies.
+- **Sort modes.** The default detection pipeline uses the modern-sort order
+  and matches the modern rebuild/local oracle on all 52 assemblies.
+  `--legacy` selects a port of GCC 4.4.3's libstdc++ `std::sort` for both
+  tie-sensitive sites (DP hits, then image endpoints); the algorithm and its
+  equal-key permutations are covered by unit tests. This reproduces the
+  shipped 2011 executable's tie order, but not all of its output: measured
+  against the locally available 2011 reports, legacy mode is byte-identical on 51/52
+  assemblies. The ignored test
+  `all_52_legacy_text_matches_original_2011_except_known_divergences` pins
+  the one remaining report (20).
 - **Committed parity tests (always run).** `reference_parity.rs` compares
   arrays, text reports and consensus FASTA for each excerpt against its
   committed golden. `report.rs` round-trips the same goldens, and
@@ -213,11 +233,20 @@ Output is unchanged; the trace hooks are only needed for trace tooling.
 
 ## Known differences from the reference
 
-- The original 2011 binary's output differs from a modern rebuild on
-  assemblies 9, 16 and 17. This project targets the modern rebuild.
+- The default output targets the modern rebuild. The original 2011 binary's
+  output differs on assemblies 9, 16 and 17 because of its GCC 4.4.3 sort
+  tie order; `--legacy` restores that order.
+- `--legacy` is not full 2011 parity. On this code base, 51/52 locally available
+  2011 text reports are byte-identical (with `--legacy-coords`, as those
+  goldens use the reference's gap-shifted coordinates). The remaining case is
+  **20**: the local 2011 report has one 52-copy array, while legacy mode produces
+  two adjacent arrays with 24 and 28 copies. This is pinned by an ignored
+  full-data test. It is not caused by the sorter (its equal-key permutations
+  are pinned by unit tests); its precise cause is unresolved. Floating-point
+  differences are one possibility, but have not been demonstrated.
 - With default settings, corrected coordinates differ from the reference's
   text output for arrays containing gaps. `--legacy-coords` restores the
-  reference's coordinates.
+  reference's coordinates; it is independent of `--legacy`.
 - Reference crashes on very short inputs (assertion failures) are not
   reproduced. The campaign records them separately as safety differences.
 

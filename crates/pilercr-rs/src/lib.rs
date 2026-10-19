@@ -10,12 +10,14 @@ pub mod params;
 pub mod pile;
 pub mod report;
 pub mod seq;
+mod sort;
 pub mod trace;
 
 pub use array::{Array, ArrayParams};
 pub use dp::DpParams;
 pub use report::{ArrayLocation, locate};
 pub use seq::Sequence;
+pub use sort::SortMode;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Config {
@@ -23,6 +25,11 @@ pub struct Config {
     pub dp: DpParams,
     pub diameter: usize,
     pub memory_budget: usize,
+    /// Tie-breaking behaviour for the unstable sorts in detection.
+    ///
+    /// Defaults to [`SortMode::Modern`]; use [`SortMode::Legacy`] to target
+    /// the shipped 2011 executable's GCC 4.4.3 sort order.
+    pub sort_mode: SortMode,
 }
 
 impl Default for Config {
@@ -32,6 +39,7 @@ impl Default for Config {
             dp: DpParams::default(),
             diameter: 512,
             memory_budget: params::DEFAULT_MEMORY_BUDGET,
+            sort_mode: SortMode::default(),
         }
     }
 }
@@ -154,7 +162,7 @@ pub fn detect(sequence: &Sequence, config: &Config) -> Result<Vec<Array>, String
             .is_some_and(|height| height >= filter_params.word_size)
     });
     let mut hits = dp::align_traps(sequence, &traps, &config.dp)?;
-    dp::sort_hits(&mut hits);
+    dp::sort_hits_with_mode(&mut hits, config.sort_mode);
     if trace::enabled() {
         for (index, hit) in hits.iter().enumerate() {
             trace::emit(
@@ -173,7 +181,7 @@ pub fn detect(sequence: &Sequence, config: &Config) -> Result<Vec<Array>, String
             );
         }
     }
-    let images = pile::hits_to_images(&hits);
+    let images = pile::hits_to_images_with_mode(&hits, config.sort_mode);
     if trace::enabled() {
         for (index, image) in images.iter().enumerate() {
             trace::emit(

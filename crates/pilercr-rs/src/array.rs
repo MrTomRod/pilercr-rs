@@ -525,10 +525,10 @@ pub fn find_arrays(
             continue;
         }
         let mut indexes: Vec<_> = component.iter().map(|m| m.pile_index).collect();
-        crate::pile::reference_sort_by_key(&mut indexes, |&p| piles[p].lo);
+        crate::sort::reference_sort_by_key(&mut indexes, |&p| piles[p].lo);
         let mut by_spacer: Vec<_> = (0..indexes.len()).collect();
         // Equal spacer ordering selects the draft root and MSA input order.
-        crate::pile::reference_sort_by_key(&mut by_spacer, |&i| spacer(&indexes, i, piles));
+        crate::sort::reference_sort_by_key(&mut by_spacer, |&i| spacer(&indexes, i, piles));
         if std::env::var_os("TRACE_ARRAY").is_some() {
             eprintln!(
                 "component {:?}",

@@ -1,5 +1,6 @@
 use crate::dp::DpHit;
 use crate::seq::Sequence;
+use crate::sort::{self, SortMode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Image {
@@ -24,105 +25,16 @@ pub struct PileSet {
     pub hit_to_pile_b: Vec<usize>,
 }
 
-pub(crate) fn reference_sort_by_key<T: Clone, K: Ord>(values: &mut [T], key: impl Fn(&T) -> K) {
-    fn adjust<T: Clone, K: Ord>(
-        values: &mut [T],
-        mut hole: usize,
-        value: T,
-        key: &impl Fn(&T) -> K,
-    ) {
-        let top = hole;
-        let len = values.len();
-        let mut child = hole;
-        while child < (len - 1) / 2 {
-            child = 2 * (child + 1);
-            if key(&values[child]) < key(&values[child - 1]) {
-                child -= 1;
-            }
-            values[hole] = values[child].clone();
-            hole = child;
-        }
-        if len.is_multiple_of(2) && child == (len - 2) / 2 {
-            child = 2 * child + 1;
-            values[hole] = values[child].clone();
-            hole = child;
-        }
-        while hole > top {
-            let parent = (hole - 1) / 2;
-            if key(&values[parent]) >= key(&value) {
-                break;
-            }
-            values[hole] = values[parent].clone();
-            hole = parent;
-        }
-        values[hole] = value;
-    }
-    fn partition<T: Clone, K: Ord>(values: &mut [T], mut depth: u32, key: &impl Fn(&T) -> K) {
-        let mut end = values.len();
-        while end > 16 {
-            if depth == 0 {
-                for parent in (0..=(end - 2) / 2).rev() {
-                    let value = values[parent].clone();
-                    adjust(&mut values[..end], parent, value, key);
-                }
-                for last in (1..end).rev() {
-                    let value = values[last].clone();
-                    values[last] = values[0].clone();
-                    adjust(&mut values[..last], 0, value, key);
-                }
-                return;
-            }
-            depth -= 1;
-            let (a, b, c) = (1, end / 2, end - 1);
-            let median = if key(&values[a]) < key(&values[b]) {
-                if key(&values[b]) < key(&values[c]) {
-                    b
-                } else if key(&values[a]) < key(&values[c]) {
-                    c
-                } else {
-                    a
-                }
-            } else if key(&values[a]) < key(&values[c]) {
-                a
-            } else if key(&values[b]) < key(&values[c]) {
-                c
-            } else {
-                b
-            };
-            values.swap(0, median);
-            let (mut left, mut right) = (1, end);
-            loop {
-                while key(&values[left]) < key(&values[0]) {
-                    left += 1;
-                }
-                right -= 1;
-                while key(&values[0]) < key(&values[right]) {
-                    right -= 1;
-                }
-                if left >= right {
-                    break;
-                }
-                values.swap(left, right);
-                left += 1;
-            }
-            partition(&mut values[left..end], depth, key);
-            end = left;
-        }
-    }
-    if values.len() < 2 {
-        return;
-    }
-    partition(values, 2 * values.len().ilog2(), &key);
-    for i in 1..values.len() {
-        let mut j = i;
-        while j > 0 && key(&values[j]) < key(&values[j - 1]) {
-            values.swap(j, j - 1);
-            j -= 1;
-        }
-    }
+/// Converts hits to images using the default (modern) sort tie-breaking.
+pub fn hits_to_images(hits: &[DpHit]) -> Vec<Image> {
+    hits_to_images_with_mode(hits, SortMode::Modern)
 }
 
-pub fn hits_to_images(hits: &[DpHit]) -> Vec<Image> {
+/// Converts hits to images and sorts image endpoints with `mode`.
+///
+/// The image order is observable because [`find_piles`] assigns each pile's
+/// `hi` from the current image rather than taking a maximum.
+pub fn hits_to_images_with_mode(hits: &[DpHit], mode: SortMode) -> Vec<Image> {
     let mut images = Vec::with_capacity(hits.len() * 2);
     for (hit_index, hit) in hits.iter().enumerate() {
         images.push(Image {
@@ -138,7 +50,7 @@ pub fn hits_to_images(hits: &[DpHit]) -> Vec<Image> {
             is_a: false,
         });
     }
-    reference_sort_by_key(&mut images, |image| image.lo);
+    sort::sort_by_key(mode, &mut images, |image| image.lo);
     images
 }
 
@@ -224,7 +136,7 @@ mod tests {
     #[test]
     fn reference_sort_matches_cpp_tie_order() {
         let mut values: Vec<_> = (0..32).map(|i| (i / 4, i)).collect();
-        reference_sort_by_key(&mut values, |value| value.0);
+        sort::reference_sort_by_key(&mut values, |value| value.0);
         assert_eq!(
             values.iter().map(|value| value.1).collect::<Vec<_>>(),
             vec![
@@ -233,11 +145,40 @@ mod tests {
             ]
         );
         let mut equal: Vec<_> = (0..32).map(|i| (0, i)).collect();
-        reference_sort_by_key(&mut equal, |value| value.0);
+        sort::reference_sort_by_key(&mut equal, |value| value.0);
         assert_ne!(
             equal.iter().map(|value| value.1).collect::<Vec<_>>(),
             (0..32).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn legacy_mode_routes_equal_lo_image_ties_through_gcc443_sort() {
+        let hits: Vec<_> = (0..9)
+            .map(|index| hit(5, 6 + index, 5, 7 + index))
+            .collect();
+        let modern = hits_to_images_with_mode(&hits, SortMode::Modern);
+        let legacy = hits_to_images_with_mode(&hits, SortMode::Legacy);
+        let order = |images: &[Image]| {
+            images
+                .iter()
+                .map(|image| (image.lo, image.hi, image.hit_index, image.is_a))
+                .collect::<Vec<_>>()
+        };
+        assert_ne!(
+            order(&modern),
+            order(&legacy),
+            "equal-lo image endpoints must follow the selected sort permutation"
+        );
+        let mut modern_sorted = order(&modern);
+        let mut legacy_sorted = order(&legacy);
+        modern_sorted.sort_unstable();
+        legacy_sorted.sort_unstable();
+        assert_eq!(
+            modern_sorted, legacy_sorted,
+            "sort modes must preserve the same image multiset"
+        );
+        assert_eq!(modern, hits_to_images(&hits));
     }
 
     #[test]
