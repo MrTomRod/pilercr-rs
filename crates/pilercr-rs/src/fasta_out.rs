@@ -75,9 +75,11 @@ mod tests {
             pos,
             consensus: vec![b'A'; 61],
             aligned_consensus: vec![b'A'; 61],
-            repeats: vec![vec![b'A'; 61]],
-            left_flanks: vec![vec![]],
-            spacers: vec![b"TT".to_vec()],
+            elements: vec![crate::array::ArrayElement {
+                left_flank: vec![],
+                repeat: vec![b'A'; 61],
+                spacer: b"TT".to_vec(),
+            }],
             cluster_rev_comp: false,
         };
         let arrays = [make(2, 100), make(1, 0)];

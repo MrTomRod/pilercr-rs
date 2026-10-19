@@ -91,25 +91,25 @@ pub(crate) fn ungapped(s: &[u8]) -> usize {
 }
 
 fn spacer_average(a: &Array) -> usize {
-    a.spacers[..a.repeats.len() - 1]
+    a.elements[..a.elements.len() - 1]
         .iter()
-        .map(Vec::len)
+        .map(|e| e.spacer.len())
         .sum::<usize>()
-        / (a.repeats.len() - 1).max(1)
+        / (a.elements.len() - 1).max(1)
 }
 
 fn summary_repeat_average(a: &Array, mode: CoordinateMode) -> usize {
-    a.repeats
+    a.elements
         .iter()
-        .map(|r| {
+        .map(|e| {
             if mode == CoordinateMode::Legacy {
-                r.len()
+                e.repeat.len()
             } else {
-                ungapped(r)
+                ungapped(&e.repeat)
             }
         })
         .sum::<usize>()
-        / a.repeats.len()
+        / a.elements.len()
 }
 
 /// Location and summary metrics for one array within its sequence.
@@ -138,7 +138,7 @@ pub fn locate(sequence: &Sequence, array: &Array) -> Result<ArrayLocation, Strin
         contig,
         start,
         len,
-        copies: array.repeats.len(),
+        copies: array.elements.len(),
         repeat_len: summary_repeat_average(array, CoordinateMode::Corrected),
         spacer_len: spacer_average(array),
     })
@@ -148,23 +148,20 @@ pub(crate) fn location(sequence: &Sequence, a: &Array) -> Result<(usize, usize, 
     let (contig, local) = sequence
         .global_to_local(a.pos)
         .ok_or_else(|| format!("array {} starts outside a contig", a.id))?;
-    let n = a.repeats.len();
+    let n = a.elements.len();
     if n == 0
-        || a.spacers.len() != n
-        || a.left_flanks.len() != n
         || a.aligned_consensus.is_empty()
         || a.consensus.is_empty()
-        || a.repeats
+        || a.elements
             .iter()
-            .any(|r| r.len() != a.aligned_consensus.len() || ungapped(r) == 0)
+            .any(|e| e.repeat.len() != a.aligned_consensus.len() || ungapped(&e.repeat) == 0)
     {
         return Err(format!("array {} has inconsistent alignment rows", a.id));
     }
     for row in a
-        .repeats
+        .elements
         .iter()
-        .chain(&a.spacers)
-        .chain(&a.left_flanks)
+        .flat_map(|e| [&e.repeat, &e.spacer, &e.left_flank])
         .chain(std::iter::once(&a.consensus))
         .chain(std::iter::once(&a.aligned_consensus))
     {
@@ -173,10 +170,10 @@ pub(crate) fn location(sequence: &Sequence, a: &Array) -> Result<(usize, usize, 
         }
     }
     let length = a
-        .repeats
+        .elements
         .iter()
-        .map(|r| ungapped(r))
-        .chain(a.spacers[..n - 1].iter().map(Vec::len))
+        .map(|e| ungapped(&e.repeat))
+        .chain(a.elements[..n - 1].iter().map(|e| e.spacer.len()))
         .try_fold(0usize, |sum, len| sum.checked_add(len))
         .ok_or_else(|| format!("array {} length overflow", a.id))?;
     if local
@@ -315,7 +312,7 @@ fn summary_prefix(out: &mut String, sequence: &Sequence, a: &Array, mode: Coordi
         label,
         local + 1,
         length,
-        a.repeats.len(),
+        a.elements.len(),
         average,
         spacer_average(a)
     )
@@ -367,7 +364,8 @@ pub fn text(
         );
         writeln!(out, "{rule}    ======").unwrap();
         let mut pos = local;
-        for (i, repeat) in a.repeats.iter().enumerate() {
+        for (i, element) in a.elements.iter().enumerate() {
+            let repeat = &element.repeat;
             let length = if mode == CoordinateMode::Legacy {
                 repeat.len()
             } else {
@@ -386,12 +384,12 @@ pub fn text(
                 100.0 * same as f64 / width as f64
             )
             .unwrap();
-            if i + 1 == a.repeats.len() {
+            if i + 1 == a.elements.len() {
                 out.push_str("        ");
             } else {
-                write!(out, "{:>6}  ", a.spacers[i].len()).unwrap();
+                write!(out, "{:>6}  ", element.spacer.len()).unwrap();
             }
-            let flank = &a.left_flanks[i];
+            let flank = &element.left_flank;
             write!(
                 out,
                 "{:>10}    ",
@@ -405,22 +403,26 @@ pub fn text(
                     c as char
                 });
             }
-            writeln!(out, "    {}", letters(&a.spacers[i])).unwrap();
+            writeln!(out, "    {}", letters(&element.spacer)).unwrap();
             pos = pos
                 .checked_add(length)
-                .and_then(|p| p.checked_add(a.spacers[i].len()))
+                .and_then(|p| p.checked_add(element.spacer.len()))
                 .ok_or_else(|| "coordinate overflow".to_string())?;
         }
         let repeat_length = if mode == CoordinateMode::Legacy {
             width
         } else {
-            a.repeats.iter().map(|r| ungapped(r)).sum::<usize>() / a.repeats.len()
+            a.elements
+                .iter()
+                .map(|e| ungapped(&e.repeat))
+                .sum::<usize>()
+                / a.elements.len()
         };
         writeln!(out, "{rule}").unwrap();
         writeln!(
             out,
             "{:>10}  {:>6}          {:>6}                {}",
-            a.repeats.len(),
+            a.elements.len(),
             repeat_length,
             spacer_average(a),
             letters(&a.aligned_consensus)
@@ -512,83 +514,90 @@ pub fn text(
     Ok(out)
 }
 
-fn quoted(s: &str) -> String {
-    let mut out = String::from("\"");
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{08}' => out.push_str("\\b"),
-            '\u{0c}' => out.push_str("\\f"),
-            c if c < '\u{20}' => write!(out, "\\u{:04x}", c as u32).unwrap(),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
+#[derive(serde::Serialize)]
+struct JsonReport<'a> {
+    arrays: Vec<JsonArray<'a>>,
+}
+
+#[derive(serde::Serialize)]
+struct JsonArray<'a> {
+    id: usize,
+    sequence: &'a str,
+    start: usize,
+    end: usize,
+    consensus: String,
+    aligned_consensus: String,
+    cluster_rev_comp: bool,
+    repeats: Vec<JsonRepeat>,
+    spacers: Vec<JsonSpacer>,
+    right_flank: String,
+}
+
+#[derive(serde::Serialize)]
+struct JsonRepeat {
+    start: usize,
+    end: usize,
+    sequence: String,
+    aligned_sequence: String,
+}
+
+#[derive(serde::Serialize)]
+struct JsonSpacer {
+    start: usize,
+    end: usize,
+    sequence: String,
 }
 
 pub fn json(sequence: &Sequence, arrays: &[Array]) -> Result<String, String> {
-    let mut out = String::from("{\"arrays\":[");
-    for (ai, a) in arrays.iter().enumerate() {
+    let mut report = JsonReport {
+        arrays: Vec::with_capacity(arrays.len()),
+    };
+    for a in arrays {
         let (ci, local, length) = location(sequence, a)?;
-        if ai != 0 {
-            out.push(',');
-        }
-        write!(out, "{{\"id\":{},\"sequence\":{},\"start\":{},\"end\":{},\"consensus\":{},\"aligned_consensus\":{},\"cluster_rev_comp\":{},\"repeats\":[",
-            a.id, quoted(&sequence.contigs[ci].label), local + 1, local + length,
-            quoted(&letters(&a.consensus)), quoted(&letters(&a.aligned_consensus)), a.cluster_rev_comp).unwrap();
+        let mut repeats = Vec::with_capacity(a.elements.len());
         let mut pos = local + 1;
-        for (i, repeat) in a.repeats.iter().enumerate() {
-            if i != 0 {
-                out.push(',');
-            }
-            let len = ungapped(repeat);
-            write!(
-                out,
-                "{{\"start\":{},\"end\":{},\"sequence\":{},\"aligned_sequence\":{}}}",
-                pos,
-                pos + len - 1,
-                quoted(&letters(
-                    &repeat
-                        .iter()
-                        .copied()
-                        .filter(|&c| c != b'-')
-                        .collect::<Vec<_>>()
-                )),
-                quoted(&letters(repeat))
-            )
-            .unwrap();
-            pos += len + a.spacers[i].len();
+        for element in &a.elements {
+            let len = ungapped(&element.repeat);
+            let sequence: Vec<_> = element
+                .repeat
+                .iter()
+                .copied()
+                .filter(|&c| c != b'-')
+                .collect();
+            repeats.push(JsonRepeat {
+                start: pos,
+                end: pos + len - 1,
+                sequence: letters(&sequence),
+                aligned_sequence: letters(&element.repeat),
+            });
+            pos += len + element.spacer.len();
         }
-        out.push_str("],\"spacers\":[");
+        let mut spacers = Vec::with_capacity(a.elements.len().saturating_sub(1));
         pos = local + 1;
-        for i in 0..a.repeats.len() - 1 {
-            pos += ungapped(&a.repeats[i]);
-            if i != 0 {
-                out.push(',');
-            }
-            write!(
-                out,
-                "{{\"start\":{},\"end\":{},\"sequence\":{}}}",
-                pos,
-                pos + a.spacers[i].len().saturating_sub(1),
-                quoted(&letters(&a.spacers[i]))
-            )
-            .unwrap();
-            pos += a.spacers[i].len();
+        for i in 0..a.elements.len() - 1 {
+            pos += ungapped(&a.elements[i].repeat);
+            spacers.push(JsonSpacer {
+                start: pos,
+                end: pos + a.elements[i].spacer.len().saturating_sub(1),
+                sequence: letters(&a.elements[i].spacer),
+            });
+            pos += a.elements[i].spacer.len();
         }
-        write!(
-            out,
-            "],\"right_flank\":{}}}",
-            quoted(&letters(a.spacers.last().unwrap()))
-        )
-        .unwrap();
+        report.arrays.push(JsonArray {
+            id: a.id,
+            sequence: &sequence.contigs[ci].label,
+            start: local + 1,
+            end: local + length,
+            consensus: letters(&a.consensus),
+            aligned_consensus: letters(&a.aligned_consensus),
+            cluster_rev_comp: a.cluster_rev_comp,
+            repeats,
+            spacers,
+            right_flank: letters(&a.elements.last().unwrap().spacer),
+        });
     }
-    out.push_str("]}\n");
+    let mut out = serde_json::to_string(&report).map_err(|e| e.to_string())?;
+    out.push('\n');
     Ok(out)
 }
 
@@ -617,12 +626,12 @@ pub fn gff(sequence: &Sequence, arrays: &[Array]) -> Result<String, String> {
         let parent = format!("array{}", a.id);
         writeln!(out, "{label}\tpilercr\trepeat_region\t{}\t{}\t.\t.\t.\tID={parent};Note=CRISPR;consensus={}", local + 1, local + length, percent_encoded(&letters(&a.consensus))).unwrap();
         let mut pos = local + 1;
-        for i in 0..a.repeats.len() {
-            let len = ungapped(&a.repeats[i]);
+        for (i, element) in a.elements.iter().enumerate() {
+            let len = ungapped(&element.repeat);
             writeln!(out, "{label}\tpilercr\tdirect_repeat\t{pos}\t{}\t.\t.\t.\tID={parent}.repeat{};Parent={parent}", pos + len - 1, i + 1).unwrap();
             pos += len;
-            let len = a.spacers[i].len();
-            if i + 1 < a.repeats.len() && len != 0 {
+            let len = element.spacer.len();
+            if i + 1 < a.elements.len() && len != 0 {
                 writeln!(out, "{label}\tpilercr\tspacer\t{pos}\t{}\t.\t.\t.\tID={parent}.spacer{};Parent={parent}", pos + len - 1, i + 1).unwrap();
                 pos += len;
             }
@@ -642,7 +651,12 @@ pub fn tsv(sequence: &Sequence, arrays: &[Array]) -> Result<String, String> {
             .replace('\t', "\\t")
             .replace('\r', "\\r")
             .replace('\n', "\\n");
-        let repeat = a.repeats.iter().map(|r| ungapped(r)).sum::<usize>() / a.repeats.len();
+        let repeat = a
+            .elements
+            .iter()
+            .map(|e| ungapped(&e.repeat))
+            .sum::<usize>()
+            / a.elements.len();
         writeln!(
             out,
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
@@ -651,7 +665,7 @@ pub fn tsv(sequence: &Sequence, arrays: &[Array]) -> Result<String, String> {
             local + 1,
             local + length,
             length,
-            a.repeats.len(),
+            a.elements.len(),
             repeat,
             spacer_average(a),
             letters(&a.consensus)
@@ -664,6 +678,7 @@ pub fn tsv(sequence: &Sequence, arrays: &[Array]) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::array::ArrayElement;
     use crate::seq::Contig;
     use std::{fs, path::Path};
 
@@ -681,9 +696,18 @@ mod tests {
             pos: 2,
             consensus: b"ACGT".to_vec(),
             aligned_consensus: b"AC-GT".to_vec(),
-            left_flanks: vec![b"AA".to_vec(), b"AAAAAAAAAAAA".to_vec()],
-            repeats: vec![b"AC-GT".to_vec(), b"Ac-GA".to_vec()],
-            spacers: vec![b"TT".to_vec(), b"GG".to_vec()],
+            elements: vec![
+                ArrayElement {
+                    left_flank: b"AA".to_vec(),
+                    repeat: b"AC-GT".to_vec(),
+                    spacer: b"TT".to_vec(),
+                },
+                ArrayElement {
+                    left_flank: b"AAAAAAAAAAAA".to_vec(),
+                    repeat: b"Ac-GA".to_vec(),
+                    spacer: b"GG".to_vec(),
+                },
+            ],
             cluster_rev_comp: false,
         };
         (seq, a)
@@ -749,14 +773,30 @@ mod tests {
 
     #[test]
     fn safe_escaping_and_invalid_arrays() {
-        assert_eq!(
-            quoted("\"\\\n\r\t\0\u{08}\u{0c}é"),
-            "\"\\\"\\\\\\n\\r\\t\\u0000\\b\\fé\""
-        );
         assert_eq!(percent_encoded("a;b= c\té"), "a%3Bb%3D%20c%09%C3%A9");
         let (seq, mut a) = sample();
         a.pos = 99;
         assert!(text(&seq, &[a], "in", CoordinateMode::Corrected, true).is_err());
+    }
+
+    #[test]
+    fn json_uses_serde_escaping_and_stable_field_order() {
+        let (mut seq, a) = sample();
+        let label = "chr\"\\\n\t\u{01}é";
+        seq.contigs[0].label = label.into();
+        let out = json(&seq, std::slice::from_ref(&a)).unwrap();
+        let expected = "{\"arrays\":[{\"id\":1,\"sequence\":\"chr\\\"\\\\\\n\\t\\u0001é\",\"start\":3,\"end\":12,\"consensus\":\"ACGT\",\"aligned_consensus\":\"AC-GT\",\"cluster_rev_comp\":false,\"repeats\":[{\"start\":3,\"end\":6,\"sequence\":\"ACGT\",\"aligned_sequence\":\"AC-GT\"},{\"start\":9,\"end\":12,\"sequence\":\"AcGA\",\"aligned_sequence\":\"Ac-GA\"}],\"spacers\":[{\"start\":7,\"end\":8,\"sequence\":\"TT\"}],\"right_flank\":\"GG\"}]}\n";
+        assert_eq!(out, expected);
+
+        let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["arrays"].as_array().unwrap().len(), 1);
+        assert_eq!(parsed["arrays"][0]["sequence"], label);
+        assert_eq!(
+            parsed["arrays"][0]["repeats"][1]["aligned_sequence"],
+            "Ac-GA"
+        );
+        assert_eq!(parsed["arrays"][0]["spacers"][0]["sequence"], "TT");
+        assert_eq!(parsed["arrays"][0]["right_flank"], "GG");
     }
 
     #[test]
@@ -770,9 +810,18 @@ mod tests {
             pos: sequence.contigs[1].start + 2,
             consensus: b"ACGT".to_vec(),
             aligned_consensus: b"ACGT".to_vec(),
-            left_flanks: vec![b"AAA".to_vec(), b"CCC".to_vec()],
-            repeats: vec![b"ACGT".to_vec(), b"AC-T".to_vec()],
-            spacers: vec![b"TT".to_vec(), b"GG".to_vec()],
+            elements: vec![
+                ArrayElement {
+                    left_flank: b"AAA".to_vec(),
+                    repeat: b"ACGT".to_vec(),
+                    spacer: b"TT".to_vec(),
+                },
+                ArrayElement {
+                    left_flank: b"CCC".to_vec(),
+                    repeat: b"AC-T".to_vec(),
+                    spacer: b"GG".to_vec(),
+                },
+            ],
             cluster_rev_comp: false,
         };
         let expected = ArrayLocation {
@@ -794,7 +843,7 @@ mod tests {
         a.pos = 99;
         assert!(locate(&sequence, &a).is_err());
         let (sequence, mut a) = sample();
-        a.repeats.clear();
+        a.elements.clear();
         assert!(locate(&sequence, &a).is_err());
     }
 
@@ -855,14 +904,22 @@ mod tests {
                             }
                         }
                     }
+                    let elements = flanks
+                        .into_iter()
+                        .zip(repeats)
+                        .zip(spacers)
+                        .map(|((left_flank, repeat), spacer)| ArrayElement {
+                            left_flank,
+                            repeat,
+                            spacer,
+                        })
+                        .collect();
                     arrays.push(Array {
                         id,
                         pos,
                         consensus: consensus.clone(),
                         aligned_consensus: consensus,
-                        repeats,
-                        spacers,
-                        left_flanks: flanks,
+                        elements,
                         cluster_rev_comp: false,
                     });
                 }

@@ -1,5 +1,5 @@
 use pilercr_rs::{
-    Array, Config, Sequence, SortMode, detect, fasta_out,
+    Array, ArrayElement, Config, Sequence, SortMode, detect, fasta_out,
     report::{self, CoordinateMode},
 };
 use std::{
@@ -29,19 +29,20 @@ fn golden_arrays(text: &str, sequence: &Sequence) -> Vec<Array> {
             };
             while !lines[i].starts_with("==========") {
                 let line = lines[i];
-                if array.repeats.is_empty() {
+                if array.elements.is_empty() {
                     let local = line[..10].trim().parse::<usize>().unwrap() - 1;
                     array.pos = sequence.local_to_global(contig, local).unwrap();
                 }
                 // Four fixed-width columns (10, 6, 6, 6), each followed by two spaces.
-                array.left_flanks.push(line.as_bytes()[36..46].to_vec());
+                let left_flank = line.as_bytes()[36..46].to_vec();
                 let mut fields = line[50..].split_whitespace();
-                array
-                    .repeats
-                    .push(fields.next().unwrap().as_bytes().to_vec());
-                array
-                    .spacers
-                    .push(fields.next().unwrap_or("").as_bytes().to_vec());
+                let repeat = fields.next().unwrap().as_bytes().to_vec();
+                let spacer = fields.next().unwrap_or("").as_bytes().to_vec();
+                array.elements.push(ArrayElement {
+                    left_flank,
+                    repeat,
+                    spacer,
+                });
                 i += 1;
             }
             array.aligned_consensus = lines[i + 1]
@@ -56,9 +57,9 @@ fn golden_arrays(text: &str, sequence: &Sequence) -> Vec<Array> {
                 .copied()
                 .filter(|&c| c != b'-')
                 .collect();
-            for repeat in &mut array.repeats {
-                assert_eq!(repeat.len(), array.aligned_consensus.len());
-                for (c, &consensus) in repeat.iter_mut().zip(&array.aligned_consensus) {
+            for element in &mut array.elements {
+                assert_eq!(element.repeat.len(), array.aligned_consensus.len());
+                for (c, &consensus) in element.repeat.iter_mut().zip(&array.aligned_consensus) {
                     if *c == b'.' {
                         *c = consensus;
                     }
@@ -98,12 +99,12 @@ fn array_difference(actual: &[Array], expected: &[Array], sequence: &Sequence) -
                 e.id, a.id, a.pos, e.id, e.pos
             ));
         }
-        if a.repeats.len() != e.repeats.len() {
+        if a.elements.len() != e.elements.len() {
             return Some(format!(
                 "array {} copies {}/{}; earliest possible: pile/graph selection or array bounds",
                 e.id,
-                a.repeats.len(),
-                e.repeats.len()
+                a.elements.len(),
+                e.elements.len()
             ));
         }
         if a.consensus != e.consensus || a.aligned_consensus != e.aligned_consensus {
@@ -117,9 +118,10 @@ fn array_difference(actual: &[Array], expected: &[Array], sequence: &Sequence) -
         // Detail reports expose only the last ten flank characters, left-padded
         // with spaces; internal genome-derived flanks may be longer.
         let left_flanks: Vec<_> = a
-            .left_flanks
+            .elements
             .iter()
-            .map(|flank| {
+            .map(|element| {
+                let flank = &element.left_flank;
                 format!(
                     "{:>10}",
                     String::from_utf8_lossy(&flank[flank.len().saturating_sub(10)..])
@@ -127,10 +129,35 @@ fn array_difference(actual: &[Array], expected: &[Array], sequence: &Sequence) -
                 .into_bytes()
             })
             .collect();
+        let expected_left_flanks: Vec<_> = e
+            .elements
+            .iter()
+            .map(|element| element.left_flank.clone())
+            .collect();
+        let repeats: Vec<_> = a
+            .elements
+            .iter()
+            .map(|element| element.repeat.clone())
+            .collect();
+        let expected_repeats: Vec<_> = e
+            .elements
+            .iter()
+            .map(|element| element.repeat.clone())
+            .collect();
+        let spacers: Vec<_> = a
+            .elements
+            .iter()
+            .map(|element| element.spacer.clone())
+            .collect();
+        let expected_spacers: Vec<_> = e
+            .elements
+            .iter()
+            .map(|element| element.spacer.clone())
+            .collect();
         for (name, actual, expected) in [
-            ("repeats", &a.repeats, &e.repeats),
-            ("spacers", &a.spacers, &e.spacers),
-            ("left flanks", &left_flanks, &e.left_flanks),
+            ("repeats", &repeats, &expected_repeats),
+            ("spacers", &spacers, &expected_spacers),
+            ("left flanks", &left_flanks, &expected_left_flanks),
         ] {
             if actual != expected {
                 let row = actual
@@ -527,9 +554,18 @@ fn report_flanks_compare_displayed_suffix_without_truncating_right_flank() {
         pos: 10,
         consensus: b"ACGT".to_vec(),
         aligned_consensus: b"ACGT".to_vec(),
-        repeats: vec![b"ACGT".to_vec(); 2],
-        spacers: vec![b"TT".to_vec(), b"TATATGCGACT".to_vec()],
-        left_flanks: vec![b"GENOME_PREFIXTTTGGCAGAG".to_vec(), b"TT".to_vec()],
+        elements: vec![
+            ArrayElement {
+                left_flank: b"GENOME_PREFIXTTTGGCAGAG".to_vec(),
+                repeat: b"ACGT".to_vec(),
+                spacer: b"TT".to_vec(),
+            },
+            ArrayElement {
+                left_flank: b"TT".to_vec(),
+                repeat: b"ACGT".to_vec(),
+                spacer: b"TATATGCGACT".to_vec(),
+            },
+        ],
         ..Array::default()
     };
     let text = report::text(
@@ -542,24 +578,28 @@ fn report_flanks_compare_displayed_suffix_without_truncating_right_flank() {
     .unwrap();
     let expected = golden_arrays(&text, &sequence);
     assert_eq!(
-        expected[0].left_flanks,
-        [b"TTTGGCAGAG", b"        TT"],
+        expected[0]
+            .elements
+            .iter()
+            .map(|e| e.left_flank.as_slice())
+            .collect::<Vec<_>>(),
+        [b"TTTGGCAGAG".as_slice(), b"        TT".as_slice()],
         "{text}"
     );
-    assert_eq!(expected[0].spacers[1], b"TATATGCGACT");
+    assert_eq!(expected[0].elements[1].spacer, b"TATATGCGACT");
     assert_eq!(
         array_difference(std::slice::from_ref(&actual), &expected, &sequence),
         None
     );
 
-    actual.left_flanks[0].push(b'C');
+    actual.elements[0].left_flank.push(b'C');
     assert!(
         array_difference(std::slice::from_ref(&actual), &expected, &sequence)
             .unwrap()
             .contains("left flanks row 1")
     );
-    actual.left_flanks[0].pop();
-    actual.spacers[1].pop();
+    actual.elements[0].left_flank.pop();
+    actual.elements[1].spacer.pop();
     assert!(
         array_difference(&[actual], &expected, &sequence)
             .unwrap()

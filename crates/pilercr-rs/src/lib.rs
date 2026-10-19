@@ -13,7 +13,7 @@ pub mod seq;
 mod sort;
 pub mod trace;
 
-pub use array::{Array, ArrayParams};
+pub use array::{Array, ArrayElement, ArrayParams};
 pub use dp::DpParams;
 pub use report::{ArrayLocation, locate};
 pub use seq::Sequence;
@@ -254,7 +254,7 @@ pub fn detect(sequence: &Sequence, config: &Config) -> Result<Vec<Array>, String
                     array.pos.to_string(),
                     String::from_utf8_lossy(&array.consensus).into_owned(),
                     String::from_utf8_lossy(&array.aligned_consensus).into_owned(),
-                    array.repeats.len().to_string(),
+                    array.elements.len().to_string(),
                 ],
             );
         }
@@ -314,7 +314,7 @@ mod tests {
         assert_eq!(arrays.len(), 1);
         assert_eq!(arrays[0].pos, 100);
         assert_eq!(arrays[0].consensus, repeat);
-        assert_eq!(arrays[0].repeats.len(), 3);
+        assert_eq!(arrays[0].elements.len(), 3);
         let directory = std::env::temp_dir().join(format!(
             "pilercr-determinism-{}-{}",
             std::process::id(),

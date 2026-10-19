@@ -45,16 +45,18 @@ fn sequence() -> Sequence {
 }
 
 fn array(id: usize, pos: usize, consensus: &[u8], spacer_len: usize) -> Array {
-    let repeats = vec![b"ACGT".to_vec(); 3];
-    let spacers = vec![vec![b'T'; spacer_len]; 3];
     Array {
         id,
         pos,
         consensus: consensus.to_vec(),
         aligned_consensus: b"ACGT".to_vec(),
-        left_flanks: vec![Vec::new(); 3],
-        repeats,
-        spacers,
+        elements: (0..3)
+            .map(|_| pilercr_rs::array::ArrayElement {
+                left_flank: Vec::new(),
+                repeat: b"ACGT".to_vec(),
+                spacer: vec![b'T'; spacer_len],
+            })
+            .collect(),
         cluster_rev_comp: false,
     }
 }

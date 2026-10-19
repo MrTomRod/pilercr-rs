@@ -1,14 +1,24 @@
 use crate::{graph::ComponentMember, msa, pile::Pile, seq::Sequence};
 
+/// One aligned repeat together with its immediately adjacent non-repeat text.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ArrayElement {
+    /// Bases preceding the repeat, typically the last ten (space padded).
+    pub left_flank: Vec<u8>,
+    /// Aligned repeat row, including gap characters.
+    pub repeat: Vec<u8>,
+    /// Bases following the repeat up to the next repeat.
+    pub spacer: Vec<u8>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Array {
     pub id: usize,
     pub pos: usize,
     pub consensus: Vec<u8>,
     pub aligned_consensus: Vec<u8>,
-    pub left_flanks: Vec<Vec<u8>>,
-    pub repeats: Vec<Vec<u8>>,
-    pub spacers: Vec<Vec<u8>>,
+    /// Array rows in genomic order; one entry per repeat.
+    pub elements: Vec<ArrayElement>,
     pub cluster_rev_comp: bool,
 }
 
@@ -235,14 +245,14 @@ fn get_array(indexes: &[usize], index: usize, piles: &mut [Pile], min_array: usi
 }
 
 fn recompute_consensus(array: &mut Array) -> Result<(), String> {
-    let cols = array.repeats.first().map_or(0, Vec::len);
-    if array.repeats.iter().any(|r| r.len() != cols) {
+    let cols = array.elements.first().map_or(0, |e| e.repeat.len());
+    if array.elements.iter().any(|e| e.repeat.len() != cols) {
         return Err("Array alignment rows have unequal lengths".into());
     }
     array.aligned_consensus = (0..cols)
         .map(|col| {
             let mut counts = [0usize; 5];
-            for row in &array.repeats {
+            for row in array.elements.iter().map(|e| &e.repeat) {
                 if let Some(letter) = b"ACGT-"
                     .iter()
                     .position(|&c| c == row[col].to_ascii_uppercase())
@@ -313,21 +323,23 @@ fn align_array(
         let flank_start = lo.saturating_sub(10).max(contig.start);
         let mut flank = vec![b' '; 10 - (lo - flank_start)];
         flank.extend_from_slice(&sequence.bases[flank_start..lo]);
-        array.left_flanks.push(flank);
-        array.repeats.push(alignment.rows[row].clone());
+        let repeat = alignment.rows[row].clone();
         let start = lo + length;
         let end = if row + 1 == locations.len() {
             start.saturating_add(10).min(contig.start + contig.len)
         } else {
             locations[row + 1].0
         };
-        array.spacers.push(
-            sequence
-                .bases
-                .get(start..end)
-                .ok_or("Invalid array spacer interval")?
-                .to_vec(),
-        );
+        let spacer = sequence
+            .bases
+            .get(start..end)
+            .ok_or("Invalid array spacer interval")?
+            .to_vec();
+        array.elements.push(ArrayElement {
+            left_flank: flank,
+            repeat,
+            spacer,
+        });
     }
     array.pos = locations[0].0;
     crate::bounds::trace_rows(&array, "before");
@@ -343,26 +355,26 @@ fn ungapped_length(row: &[u8]) -> usize {
 }
 
 fn average_repeat(array: &Array) -> usize {
-    array.repeats.iter().map(Vec::len).sum::<usize>() / array.repeats.len()
+    array.elements.iter().map(|e| e.repeat.len()).sum::<usize>() / array.elements.len()
 }
 
 fn average_spacer(array: &Array) -> usize {
-    array.spacers[..array.repeats.len() - 1]
+    array.elements[..array.elements.len() - 1]
         .iter()
-        .map(Vec::len)
+        .map(|e| e.spacer.len())
         .sum::<usize>()
-        / (array.repeats.len() - 1)
+        / (array.elements.len() - 1)
 }
 
 fn array_length(array: &Array) -> usize {
     array
-        .repeats
+        .elements
         .iter()
-        .map(|r| ungapped_length(r))
+        .map(|e| ungapped_length(&e.repeat))
         .sum::<usize>()
-        + array.spacers[..array.repeats.len() - 1]
+        + array.elements[..array.elements.len() - 1]
             .iter()
-            .map(Vec::len)
+            .map(|e| e.spacer.len())
             .sum::<usize>()
 }
 
@@ -371,7 +383,7 @@ fn accepted(array: &Array, params: &ArrayParams) -> bool {
 }
 
 fn acceptance_reason(array: &Array, params: &ArrayParams) -> &'static str {
-    if array.repeats.len() < params.min_array || array.repeats.len() < 2 {
+    if array.elements.len() < params.min_array || array.elements.len() < 2 {
         return "repeat-count";
     }
     let spacer_length = average_spacer(array);
@@ -383,7 +395,7 @@ fn acceptance_reason(array: &Array, params: &ArrayParams) -> &'static str {
         return "repeat-length";
     }
     let mut run = 0;
-    for repeat in &array.repeats {
+    for repeat in array.elements.iter().map(|e| &e.repeat) {
         let matches = repeat
             .iter()
             .zip(&array.aligned_consensus)
@@ -472,32 +484,35 @@ fn merge_arrays(sequence: &Sequence, first: &mut Array, second: &Array) -> Resul
         repeat.resize(repeat.len().max(first.consensus.len()), b'-');
         repeats.push(repeat);
     }
-    let mut flanks = Vec::with_capacity(missed);
-    let mut spacers = Vec::with_capacity(missed);
+    let mut elements = Vec::with_capacity(missed + second.elements.len());
     for (i, &start) in starts.iter().enumerate() {
         let flank_start = match start.checked_sub(10) {
             Some(start) => start,
             None => return Ok(false),
         };
-        flanks.push(sequence.bases[flank_start..start].to_vec());
+        let left_flank = sequence.bases[flank_start..start].to_vec();
         let spacer_start = start + ungapped_length(&repeats[i]);
         let spacer_end = starts.get(i + 1).copied().unwrap_or(second.pos);
         if spacer_end <= spacer_start + 1 {
             return Ok(false);
         }
-        spacers.push(sequence.bases[spacer_start..spacer_end].to_vec());
+        let spacer = sequence.bases[spacer_start..spacer_end].to_vec();
+        elements.push(ArrayElement {
+            left_flank,
+            repeat: repeats[i].clone(),
+            spacer,
+        });
     }
     if starts[0] <= last_spacer_start + 1 {
         return Ok(false);
     }
-    *first.spacers.last_mut().ok_or("Array has no spacers")? =
-        sequence.bases[last_spacer_start..starts[0]].to_vec();
-    first.repeats.extend(repeats);
-    first.left_flanks.extend(flanks);
-    first.spacers.extend(spacers);
-    first.repeats.extend(second.repeats.iter().cloned());
-    first.left_flanks.extend(second.left_flanks.iter().cloned());
-    first.spacers.extend(second.spacers.iter().cloned());
+    first
+        .elements
+        .last_mut()
+        .ok_or("Array has no spacers")?
+        .spacer = sequence.bases[last_spacer_start..starts[0]].to_vec();
+    first.elements.extend(elements);
+    first.elements.extend(second.elements.iter().cloned());
     Ok(true)
 }
 
@@ -595,7 +610,7 @@ pub fn find_arrays(
     let mut arrays = Vec::new();
     for (id, indexes, consensus) in drafts {
         let array = align_array(sequence, piles, &indexes, &consensus, id, params.min_array)?;
-        let is_accepted = !array.repeats.is_empty() && accepted(&array, params);
+        let is_accepted = !array.elements.is_empty() && accepted(&array, params);
         if crate::trace::enabled() {
             crate::trace::emit(
                 "15-decisions",
@@ -643,9 +658,14 @@ mod tests {
 
     fn array(rows: &[&[u8]], spacer: usize) -> Array {
         let mut array = Array {
-            repeats: rows.iter().map(|r| r.to_vec()).collect(),
-            left_flanks: vec![vec![b' '; 10]; rows.len()],
-            spacers: vec![vec![b'N'; spacer]; rows.len()],
+            elements: rows
+                .iter()
+                .map(|r| ArrayElement {
+                    left_flank: vec![b' '; 10],
+                    repeat: r.to_vec(),
+                    spacer: vec![b'N'; spacer],
+                })
+                .collect(),
             ..Array::default()
         };
         recompute_consensus(&mut array).unwrap();
@@ -706,13 +726,13 @@ mod tests {
         };
         let mut a = array(&[b"AC-G", b"AC-G", b"AC-G", b"TTTT"], 8);
         assert!(!accepted(&a, &params));
-        a.repeats.reverse();
-        a.spacers.last_mut().unwrap().resize(100, b'N');
+        a.elements.reverse();
+        a.elements.last_mut().unwrap().spacer.resize(100, b'N');
         assert!(accepted(&a, &params));
         params.min_repeat_ratio = 2.0;
         assert!(accepted(&a, &params));
-        a.spacers[0].resize(1, b'N');
-        a.spacers[1].resize(15, b'N');
+        a.elements[0].spacer.resize(1, b'N');
+        a.elements[1].spacer.resize(15, b'N');
         assert!(accepted(&a, &params));
     }
 
@@ -736,7 +756,7 @@ mod tests {
         assert_eq!(acceptance_reason(&a, &params), "repeat-length");
         params.min_spacer = 9;
         assert_eq!(acceptance_reason(&a, &params), "spacer-length");
-        a.repeats.pop();
+        a.elements.pop();
         assert_eq!(acceptance_reason(&a, &params), "repeat-count");
     }
 
@@ -855,8 +875,8 @@ mod tests {
         assert_eq!(arrays[0].id, 1);
         assert_eq!(arrays[0].pos, 20);
         assert_eq!(arrays[0].consensus, repeat);
-        assert_eq!(arrays[0].repeats.len(), 3);
-        assert_eq!(arrays[0].spacers.last().unwrap(), b"GGGGGGGGGGG");
+        assert_eq!(arrays[0].elements.len(), 3);
+        assert_eq!(arrays[0].elements.last().unwrap().spacer, b"GGGGGGGGGGG");
         assert!(piles.iter().all(|p| p.deleted));
     }
 
@@ -883,12 +903,10 @@ mod tests {
         second.pos = 20 + 4 * 32;
         let consensus = first.consensus.clone();
         assert!(merge_arrays(&sequence, &mut first, &second).unwrap());
-        assert_eq!(first.repeats.len(), 7);
-        assert_eq!(first.spacers.len(), 7);
-        assert_eq!(first.left_flanks.len(), 7);
-        assert_eq!(first.repeats[3], repeat);
-        assert_eq!(first.spacers[2], spacer);
-        assert_eq!(first.spacers[3], spacer);
+        assert_eq!(first.elements.len(), 7);
+        assert_eq!(first.elements[3].repeat, repeat);
+        assert_eq!(first.elements[2].spacer, spacer);
+        assert_eq!(first.elements[3].spacer, spacer);
         assert_eq!(first.consensus, consensus);
     }
 }

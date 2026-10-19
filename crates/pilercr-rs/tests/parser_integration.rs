@@ -39,29 +39,31 @@ fn verify_report(sequence: &Sequence, arrays: &[Array], input: &str) -> usize {
             parsed.consensus_repeat_sequence.as_bytes(),
             native.aligned_consensus
         );
-        assert_eq!(parsed.repeat_spacers.len(), native.repeats.len());
+        assert_eq!(parsed.repeat_spacers.len(), native.elements.len());
         assert_eq!(json["id"], native.id);
         assert_eq!(json["sequence"], contig.label);
         assert_eq!(json["start"], local + 1);
         assert_eq!(
             json["repeats"].as_array().unwrap().len(),
-            native.repeats.len()
+            native.elements.len()
         );
         assert_eq!(
             json["spacers"].as_array().unwrap().len(),
-            native.repeats.len() - 1
+            native.elements.len() - 1
         );
         let mut pos = local;
         let mut array_end = local;
         for (index, rs) in parsed.repeat_spacers.iter().enumerate() {
-            let repeat: Vec<_> = native.repeats[index]
+            let element = &native.elements[index];
+            let repeat: Vec<_> = element
+                .repeat
                 .iter()
                 .copied()
                 .filter(|&base| base != b'-')
                 .collect();
-            gaps += native.repeats[index].len() - repeat.len();
+            gaps += element.repeat.len() - repeat.len();
             let repeat_end = pos + repeat.len();
-            let spacer_end = repeat_end + native.spacers[index].len();
+            let spacer_end = repeat_end + element.spacer.len();
             assert_eq!((rs.start, rs.repeat_start), (pos, pos), "{input}");
             assert_eq!(rs.repeat_end, repeat_end, "{input}");
             assert_eq!(
@@ -69,7 +71,7 @@ fn verify_report(sequence: &Sequence, arrays: &[Array], input: &str) -> usize {
                 (repeat_end, spacer_end, spacer_end)
             );
             assert_eq!(rs.repeat.as_bytes(), repeat, "{input}");
-            assert_eq!(rs.spacer.as_bytes(), native.spacers[index], "{input}");
+            assert_eq!(rs.spacer.as_bytes(), element.spacer, "{input}");
             assert!(
                 sequence.bases[contig.start + pos..contig.start + repeat_end]
                     .eq_ignore_ascii_case(rs.repeat.as_bytes()),
@@ -87,7 +89,7 @@ fn verify_report(sequence: &Sequence, arrays: &[Array], input: &str) -> usize {
             assert_eq!(json_repeat["start"], rs.repeat_start + 1);
             assert_eq!(json_repeat["end"], rs.repeat_end);
             assert_eq!(json_repeat["sequence"], rs.repeat);
-            if index + 1 < native.repeats.len() {
+            if index + 1 < native.elements.len() {
                 let spacer = &json["spacers"][index];
                 assert_eq!(spacer["start"], rs.spacer_start + 1);
                 assert_eq!(spacer["end"], rs.spacer_end);
