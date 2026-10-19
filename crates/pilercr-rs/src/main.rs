@@ -34,7 +34,7 @@ const HELP: &str = "Usage: pilercr-rs -in INPUT.fa [-in MORE.fa ...] -out REPORT
   -maxmem BYTES        Parameter-selection memory budget (536870912)
   --help, -help        Show this help
   --version, -version  Show version
-Multiple inputs are combined in order as separate contigs. DP alignment uses Rayon; the thread count is not configurable.
+Multiple inputs are combined in order as separate contigs.
 Detection matches a modern rebuild on all 52 verification assemblies.
 ";
 
