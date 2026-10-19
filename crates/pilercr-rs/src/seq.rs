@@ -237,7 +237,7 @@ mod tests {
     fn loads_committed_excerpts_from_paths() {
         let dir = match option_env!("CARGO_MANIFEST_DIR") {
             Some(manifest) => Path::new(manifest).join("tests/fixtures/excerpts"),
-            None => Path::new("crates/pilercr-core/tests/fixtures/excerpts").to_path_buf(),
+            None => Path::new("crates/pilercr-rs/tests/fixtures/excerpts").to_path_buf(),
         };
         let mut paths: Vec<_> = fs::read_dir(&dir)
             .unwrap()

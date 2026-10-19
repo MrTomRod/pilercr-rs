@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const HELP: &str = "Usage: pilercr-cli -in INPUT.fa [-in MORE.fa ...] -out REPORT.txt [options]
+const HELP: &str = "Usage: pilercr-rs -in INPUT.fa [-in MORE.fa ...] -out REPORT.txt [options]
   -seq PATH            Consensus FASTA output
   -trimseqs            Trim similar consensus sequences (requires -seq)
   -quiet               Suppress progress messages
@@ -257,16 +257,16 @@ fn main() {
         Ok(Command::Help) => io::stdout()
             .write_all(HELP.as_bytes())
             .map_err(|e| e.to_string()),
-        Ok(Command::Version) => writeln!(io::stdout(), "pilercr-cli {}", env!("CARGO_PKG_VERSION"))
+        Ok(Command::Version) => writeln!(io::stdout(), "pilercr-rs {}", env!("CARGO_PKG_VERSION"))
             .map_err(|e| e.to_string()),
         Ok(Command::Run(args)) => run(*args),
         Err(error) => {
-            eprintln!("pilercr-cli: {error}");
+            eprintln!("pilercr-rs: {error}");
             std::process::exit(2);
         }
     };
     if let Err(error) = status {
-        eprintln!("pilercr-cli: {error}");
+        eprintln!("pilercr-rs: {error}");
         std::process::exit(1);
     }
 }
@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn writes_empty_reports_and_rejects_output_aliases() {
         let directory = env::temp_dir().join(format!(
-            "pilercr-cli-test-{}-{}",
+            "pilercr-rs-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

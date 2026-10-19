@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/pilercr-core", "crates/pilercr-cli", "crates/pilercr-campaign"]
+members = ["crates/pilercr-rs", "crates/pilercr-campaign"]
 resolver = "2"
 
 [workspace.package]
@@ -7,3 +7,4 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Thomas Roder <roder.thomas@gmail.com>"]
 license = "MIT"
+readme = "README.md"

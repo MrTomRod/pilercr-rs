@@ -5,7 +5,9 @@
 - Upstream: https://www.drive5.com/pilercr/pilercr1.06.tar.gz
 - Tarball SHA256: `50175f7aa171674cda5ba255631f340f9cc7f80e8cc25135a4cb857147d91068`
 - Extracted from the tarball's `pilercr1.06/` directory, flattened. The tarball's prebuilt
-  `pilercr` and `pilercr.exe` binaries are not included.
+  `pilercr` and `pilercr.exe` binaries are not included;
+  `scripts/fetch_reference_binary.sh` downloads the tarball, verifies its SHA256, and
+  extracts the original executable into `target/reference-binary/` on demand.
 - `pilercr1.06-src/LICENSE.md` is not part of the tarball. It was copied from the project's
   earlier local copy and states that PILER, including source and documentation, is donated to
   the public domain. The drive5.com PILER-CR page also describes PILERCR as public domain software.

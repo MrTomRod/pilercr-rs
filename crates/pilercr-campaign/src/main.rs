@@ -616,7 +616,7 @@ fn execute() -> Result<i32, String> {
             let mut cmd = Command::new("cargo");
             cmd.args(["build", "--release", "--manifest-path"])
                 .arg(root.join("Cargo.toml"))
-                .args(["-p", "pilercr-cli"])
+                .args(["-p", "pilercr-rs"])
                 .env("CARGO_TARGET_DIR", &target)
                 .current_dir(&root);
             bounded_status(
@@ -625,7 +625,7 @@ fn execute() -> Result<i32, String> {
                 &work.join("cargo-build.stdout"),
                 &work.join("cargo-build.stderr"),
             )?;
-            target.join("release/pilercr-cli")
+            target.join("release/pilercr-rs")
         };
         let mut summary = json!({"started_at":now(),"environment":{"os":env::consts::OS,"arch":env::consts::ARCH,"CXX":env::var("CXX").ok()},"master_seed":o.seed,"target":o.target,"max_attempts":if o.max_attempts==0{2000usize.max(o.target*5)}else{o.max_attempts},"max_misses":o.max_misses,"max_mutations":o.max_mutations,"mutation_steps":o.mutation_steps,"negative_every":o.negative_every,"output":out,"reference":{"path":reference,"sha256":hash(&reference)?},"rust":{"path":rust,"sha256":hash(&rust)?},"attempts":0,"original_attempts":0,"mutation_attempts":0,"accepted":0,"positives_generated":0,"negatives_generated":0,"negatives_detected":0,"undetected_positives":0,"mismatches":0,"reference_crashes":0,"miss_streak":0,"max_miss_streak":0,"mutation_ladders":0,"mutation_ladders_completed":0,"mutation_ladders_capped":0,"mutations_detected":0,"mutations_undetected":0,"mismatch_cases":[],"reference_crash_cases":[],"status":"running"});
         finalizer.summary = summary.clone();

@@ -260,10 +260,10 @@ fn is_package_dir(dir: &Path) -> bool {
     };
     manifest
         .lines()
-        .any(|line| line.trim() == "name = \"pilercr-core\"")
+        .any(|line| line.trim() == "name = \"pilercr-rs\"")
 }
 
-/// Resolve this package's directory (`crates/pilercr-core`) from runtime
+/// Resolve this package's directory (`crates/pilercr-rs`) from runtime
 /// context.
 ///
 /// Cargo bakes the absolute manifest path into the test binary at compile time,
@@ -282,7 +282,7 @@ fn resolve_package_dir(runtime_manifest: Option<&OsStr>, current_dir: &Path) -> 
     }
     assert!(
         is_package_dir(current_dir),
-        "test working directory {} is not the pilercr-core package root; run tests via cargo",
+        "test working directory {} is not the pilercr-rs package root; run tests via cargo",
         current_dir.display()
     );
     current_dir.to_path_buf()
@@ -762,7 +762,7 @@ fn all_52_native_detection_matches_local_oracle() {
     }
     if cfg!(debug_assertions) {
         eprintln!(
-            "All52 detection is expensive; prefer cargo test --release -p pilercr-core -- --ignored"
+            "All52 detection is expensive; prefer cargo test --release -p pilercr-rs -- --ignored"
         );
     }
     let start = Instant::now();

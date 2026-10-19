@@ -1,0 +1,22 @@
+[package]
+name = "pilercr-rs"
+description = "Rust reimplementation of PILER-CR for CRISPR array detection, with text, JSON, GFF3 and TSV output"
+repository = "https://github.com/MrTomRod/pilercr-rs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+readme.workspace = true
+keywords = ["crispr", "pilercr", "bioinformatics", "genomics", "cli"]
+categories = ["science::bioinformatics", "command-line-utilities"]
+
+[lib]
+name = "pilercr_rs"
+
+[[bin]]
+name = "pilercr-rs"
+path = "src/main.rs"
+
+[dev-dependencies]
+pilercr-parser = "1.1.0"
+serde_json = "1"

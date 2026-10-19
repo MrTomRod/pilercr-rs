@@ -38,27 +38,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "pilercr-cli"
-version = "0.1.0"
-dependencies = [
- "pilercr-core",
-]
-
-[[package]]
-name = "pilercr-core"
-version = "0.1.0"
-dependencies = [
- "pilercr-parser",
- "serde_json",
-]
-
-[[package]]
 name = "pilercr-parser"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14c644865a41108747bdef934877041a90689d75b9a360b6697560a88b82ccdb"
 dependencies = [
  "nom",
+]
+
+[[package]]
+name = "pilercr-rs"
+version = "0.1.0"
+dependencies = [
+ "pilercr-parser",
+ "serde_json",
 ]
 
 [[package]]

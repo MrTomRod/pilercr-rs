@@ -44,7 +44,7 @@ and report any divergence from the reference as a bug.
   `scripts/build_reference_trace.sh`. The committed reference tree is pristine.
 - **Upstream license:** public domain (`ref/pilercr1.06-src/LICENSE.md`; the
   drive5.com PILER-CR page also describes it as public domain).
-- **Excerpt fixtures:** `crates/pilercr-core/tests/fixtures/excerpts/` holds
+- **Excerpt fixtures:** `crates/pilercr-rs/tests/fixtures/excerpts/` holds
   15 anonymized windows from proprietary verification assemblies. Each window
   is one or more arrays plus 200 bp of flank on each side, merged when they
   overlap. Source names, labels and coordinates are not included. The reports
@@ -58,13 +58,12 @@ and report any divergence from the reference as a bug.
 
 | Path | Purpose |
 | --- | --- |
-| `crates/pilercr-core` | Library (`pilercr_rs`): FASTA loading, detection, reports, JSON/GFF3/TSV, consensus FASTA. Tests and committed excerpt fixtures are in `tests/`. |
-| `crates/pilercr-cli` | Command-line tool `pilercr-cli`, compatible with the `pilercr` options for text output. |
-| `crates/pilercr-campaign` | Differential test harness: generates synthetic inputs and compares this tool with the C++ reference. |
+| `crates/pilercr-rs` | Library (`pilercr_rs`) and command-line tool `pilercr-rs`: FASTA loading, detection, reports, JSON/GFF3/TSV, consensus FASTA. Tests and committed excerpt fixtures are in `tests/`. |
+| `crates/pilercr-campaign` | Differential test harness: generates synthetic inputs and compares this tool with the C++ reference. Dev-only, not published. |
 | `ref/` | Pristine PILER-CR 1.06 C++ source, with `README.md` and `SHA256SUMS`. |
 | `patches/` | `pilercr-trace.patch`: trace hooks, applied to a build copy only. |
 | `test-data/` | Full verification assemblies and oracle reports. Local only, not in the repository. |
-| `scripts/` | Build the trace-enabled reference, verify the reference source checksums, and compare trace files. |
+| `scripts/` | Build the trace-enabled reference, verify the reference source checksums, fetch the original 2011 executable, and compare trace files. |
 | `scratch/` | Local temporary and work files (ignored by git). |
 
 ## Building
@@ -79,23 +78,23 @@ Requirements:
 cargo build --release
 ```
 
-The binary is `target/release/pilercr-cli`.
+The binary is `target/release/pilercr-rs`.
 
 ## Command-line usage
 
 ```sh
 # Text report and consensus FASTA
-pilercr-cli -in genome.fasta -out report.txt -seq consensus.fasta
+pilercr-rs -in genome.fasta -out report.txt -seq consensus.fasta
 
 # Structured outputs (corrected coordinates)
-pilercr-cli -in genome.fasta -out report.txt \
+pilercr-rs -in genome.fasta -out report.txt \
   --json arrays.json --gff arrays.gff3 --tsv arrays.tsv
 
 # Several inputs are treated as separate contigs, in order
-pilercr-cli -in a.fasta -in b.fasta -out report.txt
+pilercr-rs -in a.fasta -in b.fasta -out report.txt
 ```
 
-Options (abridged; run `pilercr-cli --help` for the full list):
+Options (abridged; run `pilercr-rs --help` for the full list):
 
 | Option | Meaning |
 | --- | --- |
@@ -161,6 +160,10 @@ Correctness is checked against the reference, not only against the
 author's published reports.
 
 - **Two baselines.** The original 2011 executable is not in the repository.
+  `bash scripts/fetch_reference_binary.sh` downloads the upstream tarball,
+  verifies its published SHA256, and extracts the prebuilt executable into
+  `target/reference-binary/pilercr` for optional diagnostic runs. `cargo test`
+  never downloads it.
   Its shipped reports (local `test-data/ref-output/`) differ from a modern
   rebuild on assemblies 9, 16 and 17, because the reference's `std::sort` tie
   order depends on the compiler and standard library. The acceptance target is
@@ -182,7 +185,7 @@ author's published reports.
   cargo run --release -p pilercr-campaign -- \
     --target 50 --mutation-steps 4 \
     --reference-binary target/reference-trace/pilercr \
-    --rust-binary target/release/pilercr-cli
+    --rust-binary target/release/pilercr-rs
   ```
 
   By default it writes to `scratch/synthetic-campaign-out` and uses
@@ -201,7 +204,7 @@ cargo test --workspace
 bash scripts/build_reference_trace.sh
 PILERCR_ORACLE_DIR="$PWD/test-data/local-oracle" \
 PILERCR_REFERENCE_BINARY="$PWD/target/reference-trace/pilercr" \
-cargo test --release -p pilercr-core -- --ignored
+cargo test --release -p pilercr-rs -- --ignored
 ```
 
 The ignored set includes a differential test against `g++` (`filter.rs`).
