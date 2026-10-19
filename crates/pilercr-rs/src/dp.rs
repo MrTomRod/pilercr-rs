@@ -1,5 +1,6 @@
 use crate::filter::Trapezoid;
 use crate::seq::Sequence;
+use rayon::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DpParams {
@@ -253,6 +254,113 @@ fn same_contig(sequence: &Sequence, hit: &DpHit) -> bool {
     })
 }
 
+struct Candidate {
+    hits: Vec<DpHit>,
+    covered: Vec<usize>,
+}
+
+/// Computes the independent alignment work for one trap in the sorted list.
+///
+/// Coverage marks only reference later traps; whether this trap is itself
+/// covered is decided by the sequential pass in [`align_traps`].
+fn align_candidate(
+    sequence: &Sequence,
+    sorted: &[Trapezoid],
+    current: usize,
+    params: &DpParams,
+    min_len: isize,
+    limit: isize,
+) -> Candidate {
+    let mut candidate = Candidate {
+        hits: Vec::new(),
+        covered: Vec::new(),
+    };
+    let trap = sorted[current];
+    if trap.left < 8 || trap.bottom == trap.top {
+        return candidate;
+    }
+    let n = sequence.bases.len() as isize;
+    let mut pending = vec![(trap.bottom as isize, trap.top as isize)];
+    while let Some((bottom, top)) = pending.pop() {
+        let mid = (bottom + top) / 2;
+        let lo = mid - trap.right;
+        let hi = mid - trap.left;
+        if hi < 0 || lo > n as isize {
+            continue;
+        }
+        let lend = forward(&sequence.bases, mid, lo, hi, limit);
+        let mut x = 1;
+        let hend = loop {
+            let end = reverse(
+                &sequence.bases,
+                lend.b,
+                lend.a,
+                mid + MAX_GAP,
+                BLOCK_COST + 2 * x * DIFF_COST,
+                limit,
+            );
+            if !(end.b > mid + x as isize * MAX_GAP && end.score < lend.score) {
+                break end;
+            }
+            x += 1;
+        };
+        if lend.b - hend.b >= min_len && lend.a - hend.a >= min_len {
+            let indel = ((hend.a - hend.b) - (lend.a - lend.b)).abs();
+            let error = (0.25
+                - (hend.score as f64 - indel as f64) / (4.0 * (lend.b - hend.b) as f64))
+                as f32;
+            if error as f64 <= 1.0 - params.min_identity {
+                for j in current + 1..sorted.len() {
+                    let t = sorted[j];
+                    if t.bottom as isize >= lend.b {
+                        break;
+                    }
+                    let width = t.right - t.left + 1;
+                    let height = (t.top - t.bottom + 1) as isize;
+                    let left = t.left.max(hend.low);
+                    let right = t.right.min(hend.high);
+                    if left > right {
+                        continue;
+                    }
+                    let overlap = if t.top as isize > lend.b {
+                        lend.b - t.bottom as isize + 1
+                    } else {
+                        height
+                    };
+                    if ((right - left + 1) as f64 / width as f64) * (overlap as f64 / height as f64)
+                        > 0.99
+                    {
+                        candidate.covered.push(j);
+                    }
+                }
+                let hit = DpHit {
+                    a_lo: hend.a as usize,
+                    a_hi: lend.a as usize,
+                    b_lo: hend.b as usize,
+                    b_hi: lend.b as usize,
+                    low_diagonal: -hend.high,
+                    high_diagonal: -hend.low,
+                    score: hend.score,
+                    error,
+                };
+                let reference_length = (hit.a_hi - hit.a_lo + hit.b_hi - hit.b_lo + 2) / 2;
+                if (16..=128).contains(&reference_length) && same_contig(sequence, &hit) {
+                    candidate.hits.push(hit);
+                }
+            }
+        }
+        let upper_bottom = lend.b + MAX_GAP;
+        if top - upper_bottom > min_len {
+            pending.push((upper_bottom, top));
+        }
+        let lower_top = hend.b - MAX_GAP;
+        if lower_top - bottom > min_len && lower_top < top - MAX_GAP {
+            pending.push((bottom, lower_top));
+        }
+    }
+    candidate
+}
+
 pub fn align_traps(
     sequence: &Sequence,
     traps: &[Trapezoid],
@@ -293,97 +401,22 @@ pub fn align_traps(
     }
     let mut sorted: Vec<_> = traps.to_vec();
     sorted.sort_by_key(|t| t.bottom);
-    let mut covered = vec![false; sorted.len()];
-    let mut hits = Vec::new();
     let min_len = params.min_hit_length as isize;
     let limit = params.max_hit_length as isize;
-    for current in 0..sorted.len() {
-        if covered[current]
-            || sorted[current].left < 8
-            || sorted[current].bottom == sorted[current].top
-        {
+    let candidates: Vec<_> = (0..sorted.len())
+        .into_par_iter()
+        .map(|current| align_candidate(sequence, &sorted, current, params, min_len, limit))
+        .collect();
+    let mut covered = vec![false; sorted.len()];
+    let mut hits = Vec::new();
+    for (current, candidate) in candidates.into_iter().enumerate() {
+        if covered[current] {
             continue;
         }
-        let trap = sorted[current];
-        let mut pending = vec![(trap.bottom as isize, trap.top as isize)];
-        while let Some((bottom, top)) = pending.pop() {
-            let mid = (bottom + top) / 2;
-            let lo = mid - trap.right;
-            let hi = mid - trap.left;
-            if hi < 0 || lo > n as isize {
-                continue;
-            }
-            let lend = forward(&sequence.bases, mid, lo, hi, limit);
-            let mut x = 1;
-            let hend = loop {
-                let end = reverse(
-                    &sequence.bases,
-                    lend.b,
-                    lend.a,
-                    mid + MAX_GAP,
-                    BLOCK_COST + 2 * x * DIFF_COST,
-                    limit,
-                );
-                if !(end.b > mid + x as isize * MAX_GAP && end.score < lend.score) {
-                    break end;
-                }
-                x += 1;
-            };
-            if lend.b - hend.b >= min_len && lend.a - hend.a >= min_len {
-                let indel = ((hend.a - hend.b) - (lend.a - lend.b)).abs();
-                let error = (0.25
-                    - (hend.score as f64 - indel as f64) / (4.0 * (lend.b - hend.b) as f64))
-                    as f32;
-                if error as f64 <= 1.0 - params.min_identity {
-                    for j in current + 1..sorted.len() {
-                        let t = sorted[j];
-                        if t.bottom as isize >= lend.b {
-                            break;
-                        }
-                        let width = t.right - t.left + 1;
-                        let height = (t.top - t.bottom + 1) as isize;
-                        let left = t.left.max(hend.low);
-                        let right = t.right.min(hend.high);
-                        if left > right {
-                            continue;
-                        }
-                        let overlap = if t.top as isize > lend.b {
-                            lend.b - t.bottom as isize + 1
-                        } else {
-                            height
-                        };
-                        if ((right - left + 1) as f64 / width as f64)
-                            * (overlap as f64 / height as f64)
-                            > 0.99
-                        {
-                            covered[j] = true;
-                        }
-                    }
-                    let hit = DpHit {
-                        a_lo: hend.a as usize,
-                        a_hi: lend.a as usize,
-                        b_lo: hend.b as usize,
-                        b_hi: lend.b as usize,
-                        low_diagonal: -hend.high,
-                        high_diagonal: -hend.low,
-                        score: hend.score,
-                        error,
-                    };
-                    let reference_length = (hit.a_hi - hit.a_lo + hit.b_hi - hit.b_lo + 2) / 2;
-                    if (16..=128).contains(&reference_length) && same_contig(sequence, &hit) {
-                        hits.push(hit);
-                    }
-                }
-            }
-            let upper_bottom = lend.b + MAX_GAP;
-            if top - upper_bottom > min_len {
-                pending.push((upper_bottom, top));
-            }
-            let lower_top = hend.b - MAX_GAP;
-            if lower_top - bottom > min_len && lower_top < top - MAX_GAP {
-                pending.push((bottom, lower_top));
-            }
+        for j in candidate.covered {
+            covered[j] = true;
         }
+        hits.extend(candidate.hits);
     }
     Ok(hits)
 }
@@ -419,6 +452,14 @@ mod tests {
                 right: bottom as isize,
             },
         )
+    }
+
+    fn align_with_threads(sequence: &Sequence, traps: &[Trapezoid], threads: usize) -> Vec<DpHit> {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+        pool.install(|| align_traps(sequence, traps, &DpParams::default()).unwrap())
     }
 
     #[test]
@@ -581,6 +622,62 @@ mod tests {
         assert_eq!(
             align_traps(&seq, &[trap], &DpParams::default()).unwrap()[0].score,
             20
+        );
+    }
+
+    #[test]
+    fn nested_covered_trap_is_skipped_in_every_pool() {
+        let (seq, trap) = repeat();
+        let mut nested = trap;
+        nested.top = trap.bottom + 20;
+        let nested_alone = align_traps(&seq, &[nested], &DpParams::default()).unwrap();
+        assert_eq!(nested_alone.len(), 1);
+        let expected = align_traps(&seq, &[trap], &DpParams::default()).unwrap();
+        assert_eq!(nested_alone, expected);
+        // Equal bottoms keep their input order: whichever duplicate comes first
+        // covers the other, so every pool returns the same single hit.
+        for traps in [[trap, nested], [nested, trap]] {
+            for threads in [1, 2, 4] {
+                assert_eq!(
+                    align_with_threads(&seq, &traps, threads),
+                    expected,
+                    "nested trap must be covered with {threads} thread(s)"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rayon_pools_preserve_recursive_hit_order() {
+        let first = b"ACGTTGCATGTCAGTACGATCGTA";
+        let second = b"TGCACCTGATCGTAGCATTCAGGT";
+        let mut bases = first.to_vec();
+        bases.extend_from_slice(&[b'A'; 30]);
+        bases.extend_from_slice(second);
+        bases.extend_from_slice(&[b'G'; 20]);
+        bases.extend_from_slice(first);
+        bases.extend_from_slice(&[b'C'; 30]);
+        bases.extend_from_slice(second);
+        let seq = sequence(&bases);
+        let trap = Trapezoid {
+            bottom: 98,
+            top: 176,
+            left: 98,
+            right: 98,
+        };
+        let traps = [trap, trap];
+        let single = align_with_threads(&seq, &traps, 1);
+        assert_eq!(single.len(), 2);
+        for threads in [2, 4, 8] {
+            assert_eq!(
+                align_with_threads(&seq, &traps, threads),
+                single,
+                "hit order changed with {threads} threads"
+            );
+        }
+        assert_eq!(
+            single,
+            align_traps(&seq, &traps, &DpParams::default()).unwrap()
         );
     }
 

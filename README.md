@@ -10,7 +10,9 @@ identification of CRISPR repeats*, BMC Bioinformatics 8:18.
 
 ## Status
 
-- The detection pipeline is complete and runs single-threaded.
+- The detection pipeline is complete. The independent per-trapezoid DP work
+  runs in parallel with Rayon; results, coverage and report ordering are
+  deterministic across thread-pool sizes.
 - By default, text reports and consensus FASTA are byte-identical to the
   modern local C++ rebuild of PILER-CR v1.06 on all 52 assemblies in the
   verification set (see [Verification](#verification)).
@@ -22,7 +24,8 @@ identification of CRISPR repeats*, BMC Bioinformatics 8:18.
   assembly 20 still differs (see [Known differences](#known-differences-from-the-reference)).
 - JSON, GFF3 and TSV exports are implemented. They use corrected
   coordinates.
-- Parallelism and performance tuning are not done.
+- The DP stage is parallel; the remaining stages are single-threaded.
+  See [Performance](#performance).
 - Results are checked on one platform (Linux x86-64). Bitwise equality on
   other platforms or compilers is not claimed.
 
@@ -230,6 +233,31 @@ cargo test --release -p pilercr-rs -- --ignored
 The ignored set includes a differential test against `g++` (`filter.rs`).
 The reference build uses the pristine source plus `patches/pilercr-trace.patch`.
 Output is unchanged; the trace hooks are only needed for trace tooling.
+
+## Performance
+
+`dp::align_traps` parallelizes the independent per-trapezoid DP work with
+Rayon. Each candidate computes its own hits and coverage marks; a sequential
+pass then applies the marks in sorted trapezoid order and appends hits in the
+original order. This preserves the single-threaded coverage and ordering
+semantics exactly.
+
+Measured on a shared 16-thread Linux x86-64 host (background load was present)
+with `cargo build --release`, using median wall time of 15 alternating runs per
+binary (process startup and output to `/dev/null` included):
+
+| Assembly | Before (ms) | After (ms) | Speedup |
+| --- | ---: | ---: | ---: |
+| 9 | 624 | 374 | 1.67x |
+| 16 | 491 | 331 | 1.48x |
+| 17 | 554 | 345 | 1.61x |
+| 20 | 655 | 409 | 1.60x |
+| 50 | 918 | 454 | 2.02x |
+
+With `RAYON_NUM_THREADS=1`, median times were within 0.3–2.5% of the previous
+single-threaded binary (the DP refactor still allocates per-trapezoid
+candidates). The multi-threaded improvement is material; the single-threaded
+difference is not.
 
 ## Known differences from the reference
 

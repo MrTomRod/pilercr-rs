@@ -367,6 +367,58 @@ mod tests {
     }
 
     #[test]
+    fn detect_and_reports_are_deterministic_across_rayon_pools() {
+        let fixtures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/excerpts");
+        let single = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        let multi = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        let render = |sequence: &Sequence, arrays: &[Array], name: &str| {
+            vec![
+                report::text(
+                    sequence,
+                    arrays,
+                    name,
+                    report::CoordinateMode::Corrected,
+                    false,
+                )
+                .unwrap(),
+                report::json(sequence, arrays).unwrap(),
+                report::gff(sequence, arrays).unwrap(),
+                report::tsv(sequence, arrays).unwrap(),
+                fasta_out::consensus_fasta(sequence, arrays, false).unwrap(),
+            ]
+        };
+        for mode in [SortMode::Modern, SortMode::Legacy] {
+            let config = Config {
+                sort_mode: mode,
+                ..Config::default()
+            };
+            for id in 1..=15 {
+                let name = format!("excerpt_{id:02}");
+                let sequence = Sequence::from_path(fixtures.join(format!("{name}.fa"))).unwrap();
+                let expected = single
+                    .install(|| detect(&sequence, &config))
+                    .unwrap_or_else(|error| panic!("{name} single-thread: {error}"));
+                let actual = multi
+                    .install(|| detect(&sequence, &config))
+                    .unwrap_or_else(|error| panic!("{name} multi-thread: {error}"));
+                assert_eq!(expected, actual, "{name} {mode:?}");
+                assert_eq!(
+                    render(&sequence, &expected, &name),
+                    render(&sequence, &actual, &name),
+                    "{name} {mode:?} report ordering"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn invalid_configuration_is_rejected_even_for_empty_input() {
         let sequence = Sequence::from_reader(&b""[..]).unwrap();
         let mut config = Config::default();
