@@ -14,6 +14,7 @@ pub mod trace;
 
 pub use array::{Array, ArrayParams};
 pub use dp::DpParams;
+pub use report::{ArrayLocation, locate};
 pub use seq::Sequence;
 
 #[derive(Clone, Debug, PartialEq)]

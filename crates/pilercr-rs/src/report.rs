@@ -98,6 +98,52 @@ fn spacer_average(a: &Array) -> usize {
         / (a.repeats.len() - 1).max(1)
 }
 
+fn summary_repeat_average(a: &Array, mode: CoordinateMode) -> usize {
+    a.repeats
+        .iter()
+        .map(|r| {
+            if mode == CoordinateMode::Legacy {
+                r.len()
+            } else {
+                ungapped(r)
+            }
+        })
+        .sum::<usize>()
+        / a.repeats.len()
+}
+
+/// Location and summary metrics for one array within its sequence.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ArrayLocation {
+    /// Index of the contig containing the array.
+    pub contig: usize,
+    /// Zero-based offset of the array start within that contig.
+    pub start: usize,
+    /// Total array length in bases (ungapped repeats plus internal spacers).
+    pub len: usize,
+    /// Number of repeats (copies) in the array.
+    pub copies: usize,
+    /// Average ungapped repeat length, matching the corrected summary column.
+    pub repeat_len: usize,
+    /// Average spacer length between repeats, matching the summary column.
+    pub spacer_len: usize,
+}
+
+/// Locates an array and derives the same coordinates and averages used by the
+/// corrected report summary. Validation is delegated to `location` so the
+/// helper cannot drift from the report writers.
+pub fn locate(sequence: &Sequence, array: &Array) -> Result<ArrayLocation, String> {
+    let (contig, start, len) = location(sequence, array)?;
+    Ok(ArrayLocation {
+        contig,
+        start,
+        len,
+        copies: array.repeats.len(),
+        repeat_len: summary_repeat_average(array, CoordinateMode::Corrected),
+        spacer_len: spacer_average(array),
+    })
+}
+
 pub(crate) fn location(sequence: &Sequence, a: &Array) -> Result<(usize, usize, usize), String> {
     let (contig, local) = sequence
         .global_to_local(a.pos)
@@ -261,18 +307,7 @@ fn clusters(arrays: &[Array]) -> Vec<Vec<(usize, bool)>> {
 fn summary_prefix(out: &mut String, sequence: &Sequence, a: &Array, mode: CoordinateMode) {
     let (ci, local, length) = location(sequence, a).unwrap();
     let label: String = sequence.contigs[ci].label.chars().take(16).collect();
-    let average = a
-        .repeats
-        .iter()
-        .map(|r| {
-            if mode == CoordinateMode::Legacy {
-                r.len()
-            } else {
-                ungapped(r)
-            }
-        })
-        .sum::<usize>()
-        / a.repeats.len();
+    let average = summary_repeat_average(a, mode);
     write!(
         out,
         "{:>5}  {:>16}  {:>10}  {:>10}  {:>8}  {:>6}  {:>6}  ",
@@ -722,6 +757,45 @@ mod tests {
         let (seq, mut a) = sample();
         a.pos = 99;
         assert!(text(&seq, &[a], "in", CoordinateMode::Corrected, true).is_err());
+    }
+
+    #[test]
+    fn locate_uses_local_coordinates_and_summary_averages() {
+        let sequence =
+            Sequence::from_reader(&b">first\nAAAA\n>second\nACGTACGTACGT\n"[..]).unwrap();
+        assert_eq!(sequence.contigs[0].start, 0);
+        assert_eq!(sequence.contigs[1].start, 64);
+        let a = Array {
+            id: 1,
+            pos: sequence.contigs[1].start + 2,
+            consensus: b"ACGT".to_vec(),
+            aligned_consensus: b"ACGT".to_vec(),
+            left_flanks: vec![b"AAA".to_vec(), b"CCC".to_vec()],
+            repeats: vec![b"ACGT".to_vec(), b"AC-T".to_vec()],
+            spacers: vec![b"TT".to_vec(), b"GG".to_vec()],
+            cluster_rev_comp: false,
+        };
+        let expected = ArrayLocation {
+            contig: 1,
+            start: 2,
+            len: 9,
+            copies: 2,
+            repeat_len: 3,
+            spacer_len: 2,
+        };
+        assert_eq!(locate(&sequence, &a), Ok(expected));
+        assert_eq!(crate::locate(&sequence, &a), Ok(expected));
+        assert_eq!(location(&sequence, &a), Ok((1, 2, 9)));
+    }
+
+    #[test]
+    fn locate_rejects_invalid_arrays() {
+        let (sequence, mut a) = sample();
+        a.pos = 99;
+        assert!(locate(&sequence, &a).is_err());
+        let (sequence, mut a) = sample();
+        a.repeats.clear();
+        assert!(locate(&sequence, &a).is_err());
     }
 
     #[test]
