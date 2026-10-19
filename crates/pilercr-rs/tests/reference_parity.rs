@@ -785,3 +785,243 @@ fn all_52_native_detection_matches_local_oracle() {
     eprintln!("{summary}");
     assert!(failures.is_empty(), "{summary}\n{}", failures.join("\n"));
 }
+
+/// One line of the "SUMMARY BY SIMILARITY" table. These are the fields that
+/// make an original-2011 vs modern divergence visible without shipping either
+/// large report or assembly as a fixture.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SummarySignature {
+    position: usize,
+    length: usize,
+    copies: usize,
+    repeat_len: usize,
+    spacer_len: usize,
+    consensus: String,
+}
+
+fn signature(
+    position: usize,
+    length: usize,
+    copies: usize,
+    repeat_len: usize,
+    spacer_len: usize,
+    consensus: &str,
+) -> SummarySignature {
+    SummarySignature {
+        position,
+        length,
+        copies,
+        repeat_len,
+        spacer_len,
+        consensus: consensus.to_owned(),
+    }
+}
+
+/// Signatures in the shipped original 2011 reports (`test-data/ref-output/`).
+/// Assembly 9's first row has two trailing alignment gaps in its consensus;
+/// that is part of the 2011 report, not a transcription error.
+fn original_2011_signatures(assembly: usize) -> Vec<SummarySignature> {
+    match assembly {
+        9 => vec![
+            signature(518070, 1066, 18, 28, 33, "GTTTTCTCCACGTATGTGGAGGTGATCC--"),
+            signature(519291, 213, 4, 30, 31, "ATTTTCTCCACGTATGTGGAGGTGATCCTA"),
+        ],
+        16 => vec![
+            signature(
+                643021,
+                1814,
+                28,
+                35,
+                30,
+                "GTTTTTGTACTCTCAAGATTTAAGTAACTATACAA",
+            ),
+            signature(
+                892312,
+                1058,
+                15,
+                36,
+                37,
+                "GATATAGACCTAATTACCTCGAGAGGGGACGGAAAC",
+            ),
+            signature(
+                1375385,
+                564,
+                9,
+                36,
+                30,
+                "GTTTTGGAACCATTCGAAACAACACAGCTCTAAAAC",
+            ),
+        ],
+        17 => vec![signature(
+            1152331,
+            828,
+            13,
+            36,
+            30,
+            "GATCTAAACCTTATTGATCTAACAACCATCTAAAAC",
+        )],
+        other => panic!("no original-2011 signature recorded for assembly {other}"),
+    }
+}
+
+/// The modern baseline this project targets: local-oracle output and a modern
+/// rebuild, which the Rust implementation matches. Assembly 16 arrays 2 and 3
+/// are unchanged; only array 1 moves and gains copies.
+fn modern_signatures(assembly: usize) -> Vec<SummarySignature> {
+    match assembly {
+        9 => vec![signature(
+            518071,
+            1431,
+            24,
+            27,
+            34,
+            "TTTTCTCCACGTATGTGGAGGTGATCC",
+        )],
+        16 => vec![
+            signature(
+                641966,
+                2870,
+                44,
+                36,
+                29,
+                "GTTTTTGTACTCTCAAGATTTAAGTAACTATACAAC",
+            ),
+            signature(
+                892312,
+                1058,
+                15,
+                36,
+                37,
+                "GATATAGACCTAATTACCTCGAGAGGGGACGGAAAC",
+            ),
+            signature(
+                1375385,
+                564,
+                9,
+                36,
+                30,
+                "GTTTTGGAACCATTCGAAACAACACAGCTCTAAAAC",
+            ),
+        ],
+        17 => vec![signature(
+            1152595,
+            564,
+            9,
+            36,
+            30,
+            "GATCTAAACCTTATTGATCTAACAACCATCTAAAAC",
+        )],
+        other => panic!("no modern signature recorded for assembly {other}"),
+    }
+}
+
+fn parse_summary_signatures(report: &str) -> Vec<SummarySignature> {
+    let mut in_similarity = false;
+    let mut signatures = Vec::new();
+    for line in report.lines() {
+        if line == "SUMMARY BY SIMILARITY" {
+            in_similarity = true;
+            continue;
+        }
+        if line == "SUMMARY BY POSITION" {
+            break;
+        }
+        if !in_similarity {
+            continue;
+        }
+        let fields: Vec<_> = line.split_whitespace().collect();
+        // Header, separator, footnote and blank lines do not start with an
+        // array number. Cluster footnotes are not part of the signature.
+        if fields.len() < 9 || fields[0].parse::<usize>().is_err() {
+            continue;
+        }
+        signatures.push(SummarySignature {
+            position: fields[2].parse().unwrap(),
+            length: fields[3].parse().unwrap(),
+            copies: fields[4].parse().unwrap(),
+            repeat_len: fields[5].parse().unwrap(),
+            spacer_len: fields[6].parse().unwrap(),
+            consensus: fields[8].to_owned(),
+        });
+    }
+    signatures
+}
+
+fn report_array_count(report: &str) -> usize {
+    report
+        .lines()
+        .find_map(|line| {
+            let (_, suffix) = line.rsplit_once(": ")?;
+            suffix
+                .strip_suffix(" putative CRISPR arrays found.")?
+                .parse()
+                .ok()
+        })
+        .expect("report has no array-count header")
+}
+
+#[test]
+#[ignore = "requires test-data/; run with --ignored"]
+fn original_2011_divergences_on_assemblies_9_16_17_are_pinned() {
+    let root = package_dir().join("../..");
+    let oracle = oracle_dir(&root, std::env::var_os("PILERCR_ORACLE_DIR").as_deref())
+        .unwrap_or_else(|error| panic!("{error}"));
+
+    for assembly in [9, 16, 17] {
+        let original_expected = original_2011_signatures(assembly);
+        let modern_expected = modern_signatures(assembly);
+        let original_report =
+            read_fixture(&root.join(format!("test-data/ref-output/{assembly}.txt")));
+        let oracle_report = read_fixture(&oracle.join(format!("{assembly}.txt")));
+
+        assert_eq!(
+            report_array_count(&original_report),
+            original_expected.len(),
+            "assembly {assembly}: original 2011 array count"
+        );
+        assert_eq!(
+            parse_summary_signatures(&original_report),
+            original_expected,
+            "assembly {assembly}: original 2011 summary signatures"
+        );
+        assert_eq!(
+            report_array_count(&oracle_report),
+            modern_expected.len(),
+            "assembly {assembly}: modern rebuild array count"
+        );
+        assert_eq!(
+            parse_summary_signatures(&oracle_report),
+            modern_expected,
+            "assembly {assembly}: modern rebuild summary signatures"
+        );
+
+        let input = root.join(format!("test-data/assemblies/{assembly}.fasta"));
+        let sequence = Sequence::from_path(&input).unwrap_or_else(|error| {
+            panic!("assembly {assembly} input {}: {error}", input.display())
+        });
+        let arrays = detect(&sequence, &Config::default())
+            .unwrap_or_else(|error| panic!("assembly {assembly}: {error}"));
+        let rust_report = report::text(
+            &sequence,
+            &arrays,
+            "assembly.fasta",
+            CoordinateMode::Legacy,
+            true,
+        )
+        .unwrap_or_else(|error| panic!("assembly {assembly}: {error}"));
+        assert_eq!(
+            report_array_count(&rust_report),
+            modern_expected.len(),
+            "assembly {assembly}: Rust array count"
+        );
+        assert_eq!(
+            parse_summary_signatures(&rust_report),
+            modern_expected,
+            "assembly {assembly}: Rust summary signatures must match the modern baseline"
+        );
+        assert_ne!(
+            original_expected, modern_expected,
+            "assembly {assembly}: the recorded 2011/modern divergence disappeared"
+        );
+    }
+}
