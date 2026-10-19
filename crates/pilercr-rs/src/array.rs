@@ -7,10 +7,13 @@ pub struct ArrayElement {
     pub left_flank: Vec<u8>,
     /// Aligned repeat row, including gap characters.
     pub repeat: Vec<u8>,
-    /// Bases following the repeat up to the next repeat.
+    /// Bases following the repeat up to the next repeat. For the last
+    /// element this is the right flank, not a spacer: it is excluded from
+    /// array coordinates and spacer averages.
     pub spacer: Vec<u8>,
 }
 
+/// A detected CRISPR array: its consensus and one [`ArrayElement`] per repeat.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Array {
     pub id: usize,
