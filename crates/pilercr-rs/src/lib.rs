@@ -17,7 +17,6 @@ pub use array::{Array, ArrayElement, ArrayParams};
 pub use dp::DpParams;
 pub use report::{ArrayLocation, locate};
 pub use seq::Sequence;
-pub use sort::SortMode;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Config {
@@ -25,11 +24,6 @@ pub struct Config {
     pub dp: DpParams,
     pub diameter: usize,
     pub memory_budget: usize,
-    /// Tie-breaking behaviour for the unstable sorts in detection.
-    ///
-    /// Defaults to [`SortMode::Modern`]; use [`SortMode::Legacy`] to target
-    /// the shipped 2011 executable's GCC 4.4.3 sort order.
-    pub sort_mode: SortMode,
 }
 
 impl Default for Config {
@@ -39,7 +33,6 @@ impl Default for Config {
             dp: DpParams::default(),
             diameter: 512,
             memory_budget: params::DEFAULT_MEMORY_BUDGET,
-            sort_mode: SortMode::default(),
         }
     }
 }
@@ -162,7 +155,7 @@ pub fn detect(sequence: &Sequence, config: &Config) -> Result<Vec<Array>, String
             .is_some_and(|height| height >= filter_params.word_size)
     });
     let mut hits = dp::align_traps(sequence, &traps, &config.dp)?;
-    dp::sort_hits_with_mode(&mut hits, config.sort_mode);
+    dp::sort_hits(&mut hits);
     if trace::enabled() {
         for (index, hit) in hits.iter().enumerate() {
             trace::emit(
@@ -181,7 +174,7 @@ pub fn detect(sequence: &Sequence, config: &Config) -> Result<Vec<Array>, String
             );
         }
     }
-    let images = pile::hits_to_images_with_mode(&hits, config.sort_mode);
+    let images = pile::hits_to_images(&hits);
     if trace::enabled() {
         for (index, image) in images.iter().enumerate() {
             trace::emit(
@@ -394,27 +387,22 @@ mod tests {
                 fasta_out::consensus_fasta(sequence, arrays, false).unwrap(),
             ]
         };
-        for mode in [SortMode::Modern, SortMode::Legacy] {
-            let config = Config {
-                sort_mode: mode,
-                ..Config::default()
-            };
-            for id in 1..=15 {
-                let name = format!("excerpt_{id:02}");
-                let sequence = Sequence::from_path(fixtures.join(format!("{name}.fa"))).unwrap();
-                let expected = single
-                    .install(|| detect(&sequence, &config))
-                    .unwrap_or_else(|error| panic!("{name} single-thread: {error}"));
-                let actual = multi
-                    .install(|| detect(&sequence, &config))
-                    .unwrap_or_else(|error| panic!("{name} multi-thread: {error}"));
-                assert_eq!(expected, actual, "{name} {mode:?}");
-                assert_eq!(
-                    render(&sequence, &expected, &name),
-                    render(&sequence, &actual, &name),
-                    "{name} {mode:?} report ordering"
-                );
-            }
+        let config = Config::default();
+        for id in 1..=15 {
+            let name = format!("excerpt_{id:02}");
+            let sequence = Sequence::from_path(fixtures.join(format!("{name}.fa"))).unwrap();
+            let expected = single
+                .install(|| detect(&sequence, &config))
+                .unwrap_or_else(|error| panic!("{name} single-thread: {error}"));
+            let actual = multi
+                .install(|| detect(&sequence, &config))
+                .unwrap_or_else(|error| panic!("{name} multi-thread: {error}"));
+            assert_eq!(expected, actual, "{name}");
+            assert_eq!(
+                render(&sequence, &expected, &name),
+                render(&sequence, &actual, &name),
+                "{name} report ordering"
+            );
         }
     }
 

@@ -1,5 +1,5 @@
 use pilercr_rs::{
-    Array, ArrayElement, Config, Sequence, SortMode, detect, fasta_out,
+    Array, ArrayElement, Config, Sequence, detect, fasta_out,
     report::{self, CoordinateMode},
 };
 use std::{
@@ -826,61 +826,6 @@ fn all_52_native_detection_matches_local_oracle() {
     assert!(failures.is_empty(), "{summary}\n{}", failures.join("\n"));
 }
 
-#[test]
-#[ignore = "requires test-data/; run with --ignored"]
-fn all_52_legacy_text_matches_original_2011_except_known_divergences() {
-    let root = package_dir().join("../..");
-    let legacy_config = Config {
-        sort_mode: SortMode::Legacy,
-        ..Config::default()
-    };
-    let mut passed = 0;
-    let mut diverged = Vec::new();
-    let start = Instant::now();
-    for id in 1..=52 {
-        let input = root.join(format!("test-data/assemblies/{id}.fasta"));
-        let golden = read_fixture(&root.join(format!("test-data/ref-output/{id}.txt")));
-        let input_name = golden
-            .lines()
-            .find_map(|line| {
-                let (name, suffix) = line.rsplit_once(": ")?;
-                suffix
-                    .strip_suffix(" putative CRISPR arrays found.")
-                    .map(|_| name)
-            })
-            .unwrap_or_else(|| panic!("assembly {id}: golden has no input line"));
-        let sequence = Sequence::from_path(&input)
-            .unwrap_or_else(|error| panic!("assembly {id} input {}: {error}", input.display()));
-        let arrays = detect(&sequence, &legacy_config)
-            .unwrap_or_else(|error| panic!("assembly {id}: {error}"));
-        let actual = report::text(
-            &sequence,
-            &arrays,
-            input_name,
-            CoordinateMode::Legacy,
-            false,
-        )
-        .unwrap_or_else(|error| panic!("assembly {id}: {error}"));
-        if actual == golden {
-            passed += 1;
-        } else {
-            diverged.push(id.to_string());
-        }
-    }
-    let summary = format!(
-        "all52 legacy text vs shipped 2011 reports: {passed}/52 byte-identical, \
-         diverged [{}], elapsed {:.2}s",
-        diverged.join(","),
-        start.elapsed().as_secs_f64()
-    );
-    eprintln!("{summary}");
-    // This pins the measured result. It is deliberately not a 52/52 claim:
-    // assembly 20 is still split into two arrays where the 2011 executable
-    // reports one.
-    assert_eq!(passed, 51, "{summary}");
-    assert_eq!(diverged, ["20"], "{summary}");
-}
-
 /// One line of the "SUMMARY BY SIMILARITY" table. These are the fields that
 /// make an original-2011 vs modern divergence visible without shipping either
 /// large report or assembly as a fixture.
@@ -1117,52 +1062,6 @@ fn original_2011_divergences_on_assemblies_9_16_17_are_pinned() {
         assert_ne!(
             original_expected, modern_expected,
             "assembly {assembly}: the recorded 2011/modern divergence disappeared"
-        );
-
-        // Opt-in GCC 4.4.3 sort order. It restores the original 2011 reports
-        // for assemblies 9, 16 and 17. This is not a claim of universal 52/52
-        // parity with the 2011 executable; the full-data legacy test below
-        // records the remaining divergence.
-        let legacy_config = Config {
-            sort_mode: SortMode::Legacy,
-            ..Config::default()
-        };
-        let legacy_arrays = detect(&sequence, &legacy_config)
-            .unwrap_or_else(|error| panic!("assembly {assembly}: {error}"));
-        let legacy_input_name = original_report
-            .lines()
-            .find_map(|line| {
-                let (name, suffix) = line.rsplit_once(": ")?;
-                suffix
-                    .strip_suffix(" putative CRISPR arrays found.")
-                    .map(|_| name)
-            })
-            .unwrap_or_else(|| panic!("assembly {assembly}: original report has no input line"));
-        let legacy_report = report::text(
-            &sequence,
-            &legacy_arrays,
-            legacy_input_name,
-            CoordinateMode::Legacy,
-            false,
-        )
-        .unwrap_or_else(|error| panic!("assembly {assembly}: {error}"));
-        let legacy_signatures = parse_summary_signatures(&legacy_report);
-        assert_eq!(
-            report_array_count(&legacy_report),
-            original_expected.len(),
-            "assembly {assembly}: legacy array count"
-        );
-        assert_ne!(
-            legacy_signatures, modern_expected,
-            "assembly {assembly}: legacy sort mode must not silently be the modern default"
-        );
-        assert_eq!(
-            legacy_signatures, original_expected,
-            "assembly {assembly}: legacy mode should match the 2011 signatures"
-        );
-        assert_eq!(
-            legacy_report, original_report,
-            "assembly {assembly}: legacy mode should reproduce the 2011 report"
         );
     }
 }

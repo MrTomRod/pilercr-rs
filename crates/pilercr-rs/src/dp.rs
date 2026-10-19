@@ -19,7 +19,7 @@ impl Default for DpParams {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DpHit {
     pub a_lo: usize,
     pub a_hi: usize,
@@ -233,14 +233,8 @@ fn reverse(
     end
 }
 
-/// Sorts hits by `a_lo` using the default (modern) tie-breaking.
 pub fn sort_hits(hits: &mut [DpHit]) {
-    sort_hits_with_mode(hits, crate::SortMode::Modern);
-}
-
-/// Sorts hits by `a_lo` using the selected `std::sort` tie-breaking.
-pub fn sort_hits_with_mode(hits: &mut [DpHit], mode: crate::SortMode) {
-    crate::sort::sort_by_key(mode, hits, |hit| hit.a_lo);
+    crate::sort::reference_sort_by_key(hits, |hit| hit.a_lo);
 }
 
 fn same_contig(sequence: &Sequence, hit: &DpHit) -> bool {

@@ -1,5 +1,5 @@
 use pilercr_rs::{
-    Config, Sequence, SortMode, detect, fasta_out,
+    Config, Sequence, detect, fasta_out,
     report::{self, CoordinateMode},
     trace,
 };
@@ -15,7 +15,6 @@ const HELP: &str = "Usage: pilercr-rs -in INPUT.fa [-in MORE.fa ...] -out REPORT
   -trimseqs            Trim similar consensus sequences (requires -seq)
   -quiet               Suppress progress messages
   -noinfo              Omit explanatory report text
-  --legacy             Use GCC 4.4.3 std::sort tie-breaking for detection
   --legacy-coords      Use reference gap-shifted text coordinates
   --json PATH          JSON output (corrected coordinates)
   --gff PATH           GFF3 output (corrected coordinates)
@@ -35,10 +34,8 @@ const HELP: &str = "Usage: pilercr-rs -in INPUT.fa [-in MORE.fa ...] -out REPORT
   -maxmem BYTES        Parameter-selection memory budget (536870912)
   --help, -help        Show this help
   --version, -version  Show version
-Multiple inputs are combined in order as separate contigs. Threads are not supported.
-Default detection matches a modern rebuild on all 52 verification assemblies.
---legacy reproduces the tested GCC 4.4.3 sort order of the shipped 2011 binary
-(51/52 reports byte-identical with --legacy-coords; assembly 20 still differs).
+Multiple inputs are combined in order as separate contigs. DP alignment uses Rayon; the thread count is not configurable.
+Detection matches a modern rebuild on all 52 verification assemblies.
 ";
 
 #[derive(Debug, Default)]
@@ -91,7 +88,6 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> {
             "-quiet" => result.quiet = true,
             "-noinfo" => result.no_info = true,
             "-trimseqs" => result.trim = true,
-            "--legacy" => result.config.sort_mode = SortMode::Legacy,
             "--legacy-coords" => result.legacy = true,
             "-in" | "-out" | "-seq" | "--json" | "--gff" | "--tsv" | "-minrepeat"
             | "-maxrepeat" | "-minspacer" | "-maxspacer" | "-minarray" | "-minrepeatratio"
@@ -298,7 +294,6 @@ mod tests {
             "-trimseqs",
             "-quiet",
             "-noinfo",
-            "--legacy",
             "--legacy-coords",
             "--json",
             "r.json",
@@ -319,28 +314,8 @@ mod tests {
         assert_eq!(args.inputs.len(), 2);
         assert_eq!(args.trace_dir, Some(PathBuf::from("trace")));
         assert!(args.trim && args.quiet && args.no_info && args.legacy);
-        assert_eq!(args.config.sort_mode, SortMode::Legacy);
         assert_eq!(args.config.array.min_array, 4);
         assert_eq!(args.config.dp.min_identity, 0.95);
-    }
-
-    #[test]
-    fn legacy_sort_and_legacy_coords_are_independent() {
-        let Command::Run(coords) =
-            command(&["-in", "a", "-out", "b", "--legacy-coords"]).expect("--legacy-coords parses")
-        else {
-            panic!()
-        };
-        assert!(coords.legacy);
-        assert_eq!(coords.config.sort_mode, SortMode::Modern);
-
-        let Command::Run(sort) =
-            command(&["-in", "a", "-out", "b", "--legacy"]).expect("--legacy parses")
-        else {
-            panic!()
-        };
-        assert!(!sort.legacy);
-        assert_eq!(sort.config.sort_mode, SortMode::Legacy);
     }
 
     #[test]

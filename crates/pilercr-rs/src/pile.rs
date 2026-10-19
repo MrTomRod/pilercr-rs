@@ -1,6 +1,6 @@
 use crate::dp::DpHit;
 use crate::seq::Sequence;
-use crate::sort::{self, SortMode};
+use crate::sort;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Image {
@@ -25,16 +25,11 @@ pub struct PileSet {
     pub hit_to_pile_b: Vec<usize>,
 }
 
-/// Converts hits to images using the default (modern) sort tie-breaking.
-pub fn hits_to_images(hits: &[DpHit]) -> Vec<Image> {
-    hits_to_images_with_mode(hits, SortMode::Modern)
-}
-
-/// Converts hits to images and sorts image endpoints with `mode`.
+/// Converts hits to images and sorts image endpoints by `lo`.
 ///
 /// The image order is observable because [`find_piles`] assigns each pile's
 /// `hi` from the current image rather than taking a maximum.
-pub fn hits_to_images_with_mode(hits: &[DpHit], mode: SortMode) -> Vec<Image> {
+pub fn hits_to_images(hits: &[DpHit]) -> Vec<Image> {
     let mut images = Vec::with_capacity(hits.len() * 2);
     for (hit_index, hit) in hits.iter().enumerate() {
         images.push(Image {
@@ -50,7 +45,7 @@ pub fn hits_to_images_with_mode(hits: &[DpHit], mode: SortMode) -> Vec<Image> {
             is_a: false,
         });
     }
-    sort::sort_by_key(mode, &mut images, |image| image.lo);
+    sort::reference_sort_by_key(&mut images, |image| image.lo);
     images
 }
 
@@ -150,35 +145,6 @@ mod tests {
             equal.iter().map(|value| value.1).collect::<Vec<_>>(),
             (0..32).collect::<Vec<_>>()
         );
-    }
-
-    #[test]
-    fn legacy_mode_routes_equal_lo_image_ties_through_gcc443_sort() {
-        let hits: Vec<_> = (0..9)
-            .map(|index| hit(5, 6 + index, 5, 7 + index))
-            .collect();
-        let modern = hits_to_images_with_mode(&hits, SortMode::Modern);
-        let legacy = hits_to_images_with_mode(&hits, SortMode::Legacy);
-        let order = |images: &[Image]| {
-            images
-                .iter()
-                .map(|image| (image.lo, image.hi, image.hit_index, image.is_a))
-                .collect::<Vec<_>>()
-        };
-        assert_ne!(
-            order(&modern),
-            order(&legacy),
-            "equal-lo image endpoints must follow the selected sort permutation"
-        );
-        let mut modern_sorted = order(&modern);
-        let mut legacy_sorted = order(&legacy);
-        modern_sorted.sort_unstable();
-        legacy_sorted.sort_unstable();
-        assert_eq!(
-            modern_sorted, legacy_sorted,
-            "sort modes must preserve the same image multiset"
-        );
-        assert_eq!(modern, hits_to_images(&hits));
     }
 
     #[test]
